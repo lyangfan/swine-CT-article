@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Sensitive breeding data — keep local + Huawei, do not publish to GitHub
+*.phe
+
+# Large binaries — never track locally (Huawei-only by policy)
+*.nii.gz
+*.b2nd
+*.pkl
+*.npz
+*.pt
+*.ckpt
+*.model
+*.pth
+*.safetensors
+*.h5
+
+# CT image / label dirs (Huawei symlinks, never local)
+images/
+labels/
