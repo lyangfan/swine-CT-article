@@ -101,7 +101,13 @@ Date: 2026-06-21
 - **背景**:公平对比要求所有网络同预算。
 - **选项**:(a) 都按统一 epochs;(b) 同 total iterations/GPU-hours;(c) 各自原协议
 - **我的建议**:(a) 统一 epochs。
-- **决策**:**所有网络统一 500 epochs**(Q3 给 nnU-Net v1 定的 500 推广到所有网络)。
+- **决策**:**预算口径锚定到「总迭代次数」,所有网络(含 2D nnUNet)统一 125,000 次 optimizer step**。
+  nnU-Net v1 每 epoch 固定迭代 `num_iterations_per_epoch=250`(PACA 审计确认),所以
+  **500 epochs × 250 = 125,000 iters**。base trainer pin `num_iterations_per_epoch=250`(不允许任何网络改),
+  所有 3D 网络 + 2D nnUNet(同 trainer 同 250)都跑 500 ep = 125,000 iters。每 iter = 1 optimizer step;
+  3D 每 iter effective batch=2 个 3D patch(Q17),2D 每 iter 是它 plans 的 2D batch(更大,但 2D 是单独类别
+  Q19,patch 数差异是 2D/3D 维度差,可接受)。**预算单位是 iterations 不是 epochs**,确保不同网络看到相同的
+  optimizer 更新次数。
 
 ### Q6. patch size / batch size ✅
 
@@ -266,7 +272,7 @@ Date: 2026-06-21
 | Q2 SwinUNETR 初始化 | ✅ 所有网络统一 scratch,不预训练 |
 | Q3 nnU-Net 对照基线 | ✅ Task601 重训,严格按 6:2:2 split,500 epochs(连带定下 Q5=500) |
 | Q4 优化器 | ✅ 各自适配:CNN→SGD+poly,Transformer→AdamW |
-| Q5 训练预算 | ✅ 所有网络统一 500 epochs |
+| Q5 训练预算 | ✅ 锚定总迭代 125,000(500ep×250 iters/epoch,pin 250),含 2D nnUNet |
 | Q6 patch/batch | ✅ 所有网络 patch_size 尽量跟 nnU-Net v1 plans 派生值一致 |
 | Q7 deep supervision | ✅ 接受不对称,各网络用原版(nnU-Net 保留 DS,单输出网络单输出) |
 | Q8 Task601 预处理来源 | |
