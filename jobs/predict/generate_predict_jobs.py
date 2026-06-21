@@ -84,7 +84,7 @@ OUT={ARTICLE}/data/nnunetv1/v1_comparison_predictions/nnunet_2d__seed{seed}
 mkdir -p "${{OUT}}"
 echo "=== predict nnunet_2d seed={seed} (native nnUNet_predict, TTA off, overlap 0.5) ==="
 nnUNet_predict -i "${{INPUT}}" -o "${{OUT}}" -t 601 -tr nnUNetTrainerV2 -m 2d -f 0 \\
-    --disable_tta --step_size 0.5 --disable_mixed_precision False
+    --disable_tta --step_size 0.5
 echo "=== {name} DONE (exit $?) ==="
 """
 
