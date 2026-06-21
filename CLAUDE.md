@@ -113,6 +113,21 @@ mirror；默认两方向都不加。
 - 不要把 AutoScientists、PACA、`swine_ct_autonomous_discovery` 的数据 / 输出
   混进本目录；那些 workspace 各自有自己的同步规则。
 
+## GitHub
+
+- 仓库：`https://github.com/lyangfan/swine-CT-article`
+- SSH remote（本地配置走 socks5 代理，已验证可用）：
+  `git@github.com:lyangfan/swine-CT-article.git`
+- 默认分支 `main`；本仓库本地即 canonical，Huawei 是数据镜像，GitHub 是
+  公开版本控制。
+- 提交流程：`git status --short` → `git add <files>` →
+  `git commit -m "<message>"` → `git push origin main`。
+- **`.phe` 等 PLINK 风格育种数据已 gitignore**（含可识别场名 / 个体耳号 /
+  育种值，不公开）。这些文件仍保留在本地与 Huawei，只是不进 GitHub。
+  新增敏感数据类型时同样追加到 `.gitignore`。
+- 大文件（CT / 权重 / 预处理数组）由 `.gitignore` 拦截，永不进仓库；本地本身
+  也不存这些（见上文同步规则）。
+
 ## HZAU Server
 
 ```sshconfig
