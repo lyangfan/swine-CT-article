@@ -20,6 +20,10 @@ Host paca_share 27.18.114.38
   - submit: `dsub -s <job_script>`
   - query: `djob <job_id>`, `djob -L <job_id>`, or `djob -D`
   - terminate: `djob -T <job_id>`
+- **提交作业后必须做 early runtime 检查**:`dsub` 后等 ~1-2min,跑 `djob <job_id>`
+  看状态。**若 FAILED,立刻读 `.err` 日志定位原因并修复**(常见:flag 拼写/单双横、
+  缺 `module load`、缺 lib、缺执行权限),**修好再重提**;不要在没确认 RUNNING 的情况
+  下就长时间等待。长任务也应每隔 ~10min 复查一次状态,避免白等一个早已 FAILED 的作业。
 - Do not schedule PACA jobs on `whshare-agent-174`; use
   `dsub -pn '!whshare-agent-174' -s <job_script>` or
   `#DSUB -pn !whshare-agent-174`.

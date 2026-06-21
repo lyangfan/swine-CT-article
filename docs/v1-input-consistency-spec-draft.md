@@ -24,6 +24,35 @@ Date: 2026-06-21
 - 加新网络 = 注册一个 builder,不改 base、不改数据管线。
 - 第一个具体网络:SwinUNETR(作为首个 plugin 实现)。
 
+## 统一 nnunetv1 环境(华为)
+
+所有 v1 预处理 / 训练统一用 `swine_ct_autonomous_discovery` 那套**已验证**的 nnunetv1 环境。
+参考脚本:`runs/swct06042040_codex_hv1_kidney_phase2_v3/task/tools/adopted/setup_nnunetv1_env.sh`
+(函数 `swct_setup_nnunetv1_env` + `swct_nnunetv1_preflight`)。
+
+**CUDA stack(module load):**
+- `compilers/gcc/9.3.0`
+- `compilers/cuda/11.8.0`
+- `libs/cudnn/8.8.1_cuda11`
+- `libs/nccl/2.16.5-1_cuda11.8`
+
+**关键路径:**
+- `REMOTE_PROJECT_ROOT = /home/share/hzau/home/liuyangfan/swine_ct_autonomous_discovery`
+- `NNUNETV1_ENV_ROOT = $REMOTE_PROJECT_ROOT/envs/nnunetv1`(python / bin)
+- `NNUNETV1_COMPAT_ROOT = $REMOTE_PROJECT_ROOT/scripts/nnunetv1_compat`(确定性套件,加进 `PYTHONPATH`)
+
+**Task601 数据根(覆盖默认;用 `SWCT_RESPECT_EXISTING_NNUNETV1_PATHS=1`):**
+- `nnUNet_raw_data_base = swine-CT-article/data/nnunetv1`
+- `nnUNet_preprocessed   = swine-CT-article/data/nnunetv1/nnUNet_preprocessed`
+- `RESULTS_FOLDER        = swine-CT-article/data/nnunetv1/nnUNet_results`
+- Task601 raw 必须在 `$nnUNet_raw_data_base/nnUNet_raw_data/Task601_Article622_Carcass9Class/`(v1 硬性布局)
+
+**必要 hack:**
+- sklearn `libgomp` `LD_PRELOAD`(`scikit_learn.libs/libgomp.so`,解决符号冲突)
+- `OMP_NUM_THREADS / OPENBLAS / MKL / NUMEXPR = 16`
+
+**激活:** 先 export 上面三个 data-root 覆盖 + `SWCT_RESPECT_EXISTING_NNUNETV1_PATHS=1`,再 `source setup_nnunetv1_env.sh`,然后跑 `swct_nnunetv1_preflight`(校验 import / CUDA / `nnUNet_train`/`nnUNet_predict` 在 PATH)。**所有 v1 job 前必须 preflight 通过。**
+
 ---
 
 ## 待决策问题(按依赖顺序)
@@ -131,6 +160,92 @@ Date: 2026-06-21
 
 ---
 
+## 第二轮:公平性补充问题(Q12-Q19,讨论中)
+
+> 第一轮定了 split/预算/优化器/patch/DS/确定性/评估的大框架,但参照 PACA
+> `hyperparameter_fair_comparison_protocol.md` / `swinunetr_scratch_baseline_spec.md`,
+> 还有几个**输入侧 / 训练侧的公平性维度**没显式锁定。逐题补。
+
+### Q12. 数据增广一致性 ✅
+
+- **背景**:PACA 硬性要求所有方法共用同一套 augmentation。`nnUNetTrainerV2` 实际用 `get_moreDA_augmentation`(丰富版),非 sparse default。
+- **选项**:(a) 所有网络共用 v1 moreDA;(b) 各网络用自己原版增强
+- **我的建议**:(a) 共用 v1 moreDA。
+- **决策**:**所有网络锁死共用 nnU-Net v1 moreDA 增广**(SpatialTransform 旋转/缩放/弹性 + GaussianNoise +
+  GaussianBlur + BrightnessMultiplicative + Brightness 加性偏移 + ContrastAugmentation + SimulateLowResolution +
+  GammaTransform 反转/非反转 + Mirror)。不额外加、不做类别专项、seed 固定、resolved_config 记录全套。
+  **调研确认**:nnFormer/SegFormer3D/UNETR/SwinUNETR/MedNeXt/SegResNet/2D-nnUNet 没有一个论文声称某种
+  "moreDA 之外、且性能关键"的特殊增广;MONAI 系官方增广是 moreDA 子集。MedNeXt 直接复用 v1 moreDA。
+
+### Q13. 前景过采样 / patch sampling 规则 ✅
+
+- **背景**:PACA 锁定 patch 采样严格复刻 nnU-Net dataloader(force-fg 0.33,无类别专项)。决定 patch 分布,是 input 一致性核心。
+- **选项**:(a) 共用 v1 采样规则;(b) 允许调整
+- **我的建议**:(a)。
+- **决策**:**所有网络共用 v1 dataloader 采样规则**:`oversample_foreground_percent=0.33`、batch 内
+  sample0=random crop + sample1=forced-foreground crop(从 .pkl `class_locations` 取中心)、case 采样
+  均匀随机。**禁止**类别专项 oversampling / hard-case mining / class-balanced sampling / 动态调整。
+  base trainer 继承 `nnUNetDataLoader`,所有网络自动拿到。
+
+### Q14. patch size 架构整除约束 ✅
+
+- **背景**:Q6 要所有网络 patch 跟 v1 plans 一致。transformer 系(SwinUNETR/UNETR/MedNeXt)要求
+  每个空间维度被 32 整除。
+- **选项**:(a) v1 plans patch 优先,遇硬约束取最近合规值;(b) 强制统一
+- **我的建议**:(a)。
+- **决策**:**Task601 v1 plan_and_preprocess 完整跑完(DSUB 564154 SUCCEEDED,2026-06-22;plan-only
+  564151)。`plans_per_stage` 是 2 stage:stage0 `[128,128,128]`@resampled `[5.10,2.56,2.56]`(各向同性化
+  备选)/ **stage1(3d_fullres 实际用)`[64,160,160]`**@原始 `[5,0.97656,0.97656]`(不 resample,各向异性
+  pooling `[[1,2,2],[1,2,2],[2,2,2],…]`)。transpose_forward `[0,1,2]`,do_dummy_2D=False。**
+  完整预处理产物已生成:`nnUNetData_plans_v2.1_stage0/`(316)、`_stage1/`(316)、`_2D_stage0/`、
+  `gt_segmentations/`(158)、2D/3D plans、dataset.json。
+  **`[64,160,160]` 天然被 32 整除**(64=32×2,160=32×5)→ SwinUNETR/UNETR/MedNeXt 直接用,**无需调整,
+  Q14 整除担心完全消解**。所有网络统一 `[64,160,160]` + batch 2。
+
+### Q15. 损失函数一致性
+
+- **背景**:PACA 锁定 supervised loss = CE + Dice(所有 SwinUNETR 系)。nnU-Net v1 用
+  `DC_and_CE_loss`。loss 是训练目标,不一致会引入额外变量。
+- **选项**:(a) 所有网络统一 `DC_and_CE_loss`(DS 网络走 MultipleOutputLoss2 加权、单输出网络
+  直接算,但底层 loss 函数相同);(b) 允许每网络用自己原版 loss
+- **我的建议**:
+- **决策**:
+
+### Q16. 模型选择指标(val)
+
+- **背景**:从 val 集选最佳 checkpoint 的 metric 必须预定义,禁 post-hoc 选有利指标(PACA 用
+  common-class Dice,排除条件类 head/testis 避免被 HZAU/TB 不对称带偏)。
+- **选项**:(a) 预定义 val common-class Dice(front/middle/end/kidney×2/cavity×2 这 7 个
+  始终存在的类的 Dice 均值,排除条件类 head/testis);(b) 全类 Dice;(c) 别的
+- **我的建议**:
+- **决策**:
+
+### Q17. effective batch / gradient accumulation
+
+- **背景**:有些网络显存吃紧,physical batch 可能 <2。要保证 effective batch 一致(公平预算)。
+- **选项**:(a) target effective_batch_size = v1 plans batch(通常 2 patches),physical 不够时用
+  gradient accumulation 补到 effective=2;(b) 各网络 physical batch 不同就不同
+- **我的建议**:
+- **决策**:
+
+### Q18. weight decay / scheduler 细节
+
+- **背景**:Q4 定了 optimizer 按 family(CNN→SGD+poly,Transformer→AdamW)。scheduler 跟着 family
+  (SGD→poly lr,AdamW→warmup_cosine),weight decay 要不要也锁定?
+- **选项**:(a) scheduler 跟 family(Q4 已隐含),weight decay 按 family 固定小值(CNN 用 v1 默认,
+  Transformer 如 1e-5),config 记录;(b) 允许搜 weight decay
+- **我的建议**:
+- **决策**:
+
+### Q19. 2D nnUNet 的处理(阵容扩展引入)
+
+- **背景**:你想加 2D nnUNet。但它是 2D 模型,进不了我们 3D v1 预处理空间(3D 体素重采样/crop
+  对 2D 切片模型不适用)。把它硬塞进 3D 框架不公平,也不自然。
+- **选项**:(a) 2D nnUNet 作为**单独类别的参考基线**,走它自己的 nnU-Net 2D 预处理,单独报告,
+  不进 3D 主对比表;(b) 剔除 2D nnUNet,只做 3D 架构对比;(c) 硬塞(不推荐)
+- **我的建议**:
+- **决策**:
+
 ## 决策汇总(讨论后回填)
 
 | Q | 决策 |
@@ -146,6 +261,14 @@ Date: 2026-06-21
 | Q9 shared cache 复用 | ✅ 自己 unpack(--unpack-data --fp16),不复用 197-based cache |
 | Q10 确定性杆 | ✅ 所有网络要求 state_dict_equal=true |
 | Q11 评估口径 | ✅ 复用 locked evaluator + 条件类处理,预测 no TTA/ensemble/PP |
+| Q12 数据增广一致性 | ✅ 所有网络锁死共用 nnU-Net v1 moreDA(全套,无额外/无类别专项) |
+| Q13 前景过采样规则 | ✅ 共用 v1 dataloader(force-fg 0.33,无类别专项) |
+| Q14 patch 整除约束 | ✅ 实测 v1 patch=[64,160,160] batch2,天然 32 整除,无需调整 |
+| Q15 损失函数一致性 | |
+| Q16 模型选择指标 | |
+| Q17 effective batch | |
+| Q18 weight decay/scheduler | |
+| Q19 2D nnUNet 处理 | |
 
 ---
 
