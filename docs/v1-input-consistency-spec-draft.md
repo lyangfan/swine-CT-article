@@ -76,6 +76,11 @@ Date: 2026-06-21
 ### 2D nnUNet
 - 全部从 2D plans 自动（`_2D_stage0` 已生成）。
 
+### CNN 家族 optimizer/training 超参（nnU-Net v1 / 2D nnUNet / MedNeXt-S 统一）
+- **跟 nnU-Net v1 完全一致**:SGD + poly lr,initial_lr=**0.01**,weight_decay=**3e-4**,momentum=0.99(nnU-Net v1 默认)
+- MedNeXt-S 算 **CNN 家族**(ConvNeXt 系,但按 Q4 规则归 CNN → SGD+poly,不是 AdamW)
+- 不自定义,全部用 nnU-Net v1 原生默认值
+
 ## 统一 nnunetv1 环境(华为)
 
 所有 v1 预处理 / 训练统一用 `swine_ct_autonomous_discovery` 那套**已验证**的 nnunetv1 环境。
