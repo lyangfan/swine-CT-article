@@ -1,6 +1,6 @@
 # Spec Draft — v1 输入一致性(多网络,网络不写死)
 
-Status: FULLY DECIDED — 19/19 题已决策(Q1-Q19)
+Status: Q1-Q19 已决策;Q20-Q27(工程/运营/科学缺口)待讨论 + 若干待澄清项
 Date: 2026-06-21
 
 ## 目标
@@ -127,14 +127,15 @@ Date: 2026-06-21
   MultipleOutputLoss2),单输出网络(SwinUNETR 等)走单输出 + 直接 DC_and_CE。base trainer 的
   `run_iteration` 按网络注册的 forward 协议分支,**不改任何架构**。报告时写明这是架构相关差异。
 
-### Q8. Task601 预处理来源
+### Q8. Task601 预处理来源 ✅
 
 - **背景**:Task601 自己跑 `nnUNet_plan_and_preprocess -t 601`;或复用 swine_ct_autonomous_discovery
   现成 Task509/520(all197,plans_v2.1)软连接。
 - **选项**:(a) Task601 自己跑;(b) 复用现成 v1 预处理
 - **我的建议**:**(a) Task601 自己跑**。干净隔离、自文档化,符合"文章 workspace 独立"原则;
   30-60min 一次性成本可接受。
-- **决策**:
+- **决策**:**Task601 自己跑 plan_and_preprocess(158-based,隔离)。实际已完成**(DSUB 564154
+  SUCCEEDED,2026-06-22;详见 Q14)。归一化口径是 Task601 自己 158 例算的,自洽。不复用 197-based 产物。
 
 ### Q9. shared_unpacked_cache 复用 ✅
 
@@ -264,6 +265,95 @@ Date: 2026-06-21
   独立 2D plans 预处理,与 3D Task601 隔离),单独训练 + 评估 + 报告,**不进 3D 主对比表**。
   文章:3D 主对比表(7 网络统一 `[64,160,160]`)+ 补充"2D nnUNet 参考"小节(不同维度)。
 
+## 第三轮:工程 / 运营 / 科学缺口(Q20-Q27,待讨论)
+
+> Q1-Q19 锁定了公平性维度。但从「spec → 实际跑出 8 个网络结果」还差工程集成、运营调度、
+> 科学报告层面的东西。逐题待讨论。
+
+### Q20. 网络集成机制(尤其 nnFormer 的包冲突)
+
+- **背景**:nnFormer repo 是个 **nnU-Net v1 fork**(整个 `nnformer/` 包镜像 nnunet 结构),装进 v1 env 会和真正的 `nnunetv1` 包**命名空间冲突**(`import nnunet` 歧义)。各网络接入方式不一:
+  - MONAI 系(SwinUNETR/UNETR/SegResNet):`pip install monai` 直接 import
+  - MedNeXt:装 `nnunet_mednext`(它依赖 nnunetv1,在 v1 env 里 OK)
+  - SegFormer3D-aniso:单文件,直接放框架里
+  - nnFormer:**要隔离**(只抽模型类,不整体装它的包)
+- **选项**:(a) nnFormer 只 copy 模型类进框架(不 pip install 它的包);(b) 给 nnFormer 单独建 env;(c) 改名空间 hack
+- **我的建议**:
+- **决策**:
+
+### Q21. 预测/推理路径(非 nnU-Net 网络)
+
+- **背景**:nnU-Net 有 `nnUNet_predict`(sliding window + 反预处理回原空间 + 存 nii.gz)。非 nnU-Net
+  网络要同等预测:sliding window、overlap、TTA off、argmax、resample 回原始 spacing。
+- **选项**:(a) base trainer 自带统一 predict 函数(复用 nnU-Net v1 预测机制,所有网络走同一套);
+  (b) 每网络单独写 predict
+- **我的建议**:
+- **决策**:
+- **待 pin 的 predict 参数**:sliding window overlap(0.5?)、TTA off(Q11 已定)、predict batch size。
+
+### Q22. GPU 分配 + 作业调度
+
+- **背景**:8 个网络(7×3D + 1×2D)各 125,000 iters。每网络几张 GPU?并发几个训?DSUB 批量提交,
+  避开 agent-174,守 GPU 配额。
+- **选项**:(a) 单卡/网络(DDP off,最简单公平,OOM 靠 Q17 grad accum 兜底),按 GPU 空闲并发提交;
+  (b) 多卡 DDP
+- **我的建议**:
+- **决策**:
+
+### Q23. num_classes 约定
+
+- **背景**:任务 9 前景 + bg。nnU-Net v1 用 num_classes=9(foreground,softmax over 10)。各网络
+  out_channels 要统一。smoke test 用了 10,需跟 nnU-Net v1 对齐。
+- **选项**:(a) 统一 9(跟 nnU-Net v1,softmax over 10 含 bg);(b) 统一 10
+- **我的建议**:
+- **决策**:
+
+### Q24. 随机种子策略
+
+- **背景**:Q10 要求 state_dict_equal=true,但具体 seed 值没 pin。所有网络应同一 base seed(公平+可复现)。
+- **选项**:pin 一个 base seed(建议 20260520,跟 PACA 一致),所有网络同 seed。
+- **我的建议**:
+- **决策**:
+
+### Q25. fp16 unpack 的 dtype 口径(澄清 Q9)
+
+- **背景**:Q9 写"自己 unpack --fp16",但 nnU-Net v1 标准 `--unpack-data` 产 **fp32 npy**(~100GB+),
+  `--fp16` 是训练 AMP 的 flag。HZAU 提过 `_unpack_fp16` 变体。需澄清 unpack npy 是 fp32 还是 fp16,
+  以及 fp16 AMP 下 state_dict_equal(PACA 说可达,要确认 stack)。
+- **选项**:(a) fp32 unpack + fp16 AMP 训练;(b) fp16 unpack(若有路径);(c) 全 fp32(最稳但慢/大)
+- **我的建议**:
+- **决策**:
+
+### Q26. 统计显著性检验
+
+- **背景**:7 网络在 39 test case 上比,主表 mean±std 还是配对显著性检验(paired t-test / Wilcoxon
+  跨 39 case)?影响结论力度。
+- **选项**:(a) 纯描述 mean±std;(b) 加配对显著性检验;(c) 两者都报
+- **我的建议**:
+- **决策**:
+
+### Q27. 文章主表结构 + 研究问题
+
+- **背景**:spec 全是公平对比机制,但文章的科学 claim(这批各向异性猪 CT 上架构间什么结论?)没写明。
+  主表报哪些列(per-class Dice/HD95?条件类单独?mean?)?要不要额外分析。
+- **选项**:(待定,偏写作,但影响要不要额外分析)
+- **我的建议**:
+- **决策**:
+
+---
+
+## ⚠️ 待澄清 / 前后不一致标记
+
+1. **Q9 unpack 命令 vs 实际**:Q9/路线图写"`nnUNet_plan_and_preprocess -t 601 --unpack-data --fp16`",
+   但**实际跑的 plan_and_preprocess(job 564154)没带 `--unpack-data`**(只产 npz+pkl)。nnU-Net v1 的
+   unpack 是**训练时**(`nnUNet_train --unpack-data`)做的,不是 plan_and_preprocess 时。所以:
+   - 路线图 step 1 的命令描述不准(把 unpack 混进了 plan_and_preprocess)。
+   - unpacked npy **还没生成**,首次训练时才会产(~fp32 100GB+ 或 fp16,见 Q25)。待 Q25 定 dtype。
+2. **路线图 plugin 列表过期**:路线图 step 3 只列了 nnU-Net + SwinUNETR 两个 plugin,但 Q1/Q14 已扩到
+   7 个网络(nnU-Net/SwinUNETR/UNETR/SegResNet/MedNeXt/nnFormer/SegFormer3D-aniso)+ 2D nnUNet。要更新。
+3. **Q9 说 fp16,实际机制不明**:见 Q25,需澄清 unpack dtype + AMP 确定性 stack。
+4. **smoke test 用 num_classes=10,nnU-Net v1 用 9**:见 Q23,要 pin 统一。
+
 ## 决策汇总(讨论后回填)
 
 | Q | 决策 |
@@ -275,7 +365,7 @@ Date: 2026-06-21
 | Q5 训练预算 | ✅ 锚定总迭代 125,000(500ep×250 iters/epoch,pin 250),含 2D nnUNet |
 | Q6 patch/batch | ✅ 所有网络 patch_size 尽量跟 nnU-Net v1 plans 派生值一致 |
 | Q7 deep supervision | ✅ 接受不对称,各网络用原版(nnU-Net 保留 DS,单输出网络单输出) |
-| Q8 Task601 预处理来源 | |
+| Q8 Task601 预处理来源 | ✅ 自己跑(已完成 DSUB 564154,158-based 隔离) |
 | Q9 shared cache 复用 | ✅ 自己 unpack(--unpack-data --fp16),不复用 197-based cache |
 | Q10 确定性杆 | ✅ 所有网络要求 state_dict_equal=true |
 | Q11 评估口径 | ✅ 复用 locked evaluator + 条件类处理,预测 no TTA/ensemble/PP |
@@ -287,6 +377,14 @@ Date: 2026-06-21
 | Q17 effective batch | ✅ effective=2,grad accum 兜底(语义 caveat 记录) |
 | Q18 weight decay/scheduler | ✅ scheduler 跟家族,wd 固定小值不搜(CNN 3e-4/T 1e-5,lr 写死) |
 | Q19 2D nnUNet 处理 | ✅ 单独类别参考基线,走 nnU-Net 2D pipeline,不进 3D 主对比表 |
+| Q20 网络集成(nnFormer 冲突) | ⏳ 待讨论 |
+| Q21 预测/推理路径 | ⏳ 待讨论 |
+| Q22 GPU 分配 + 调度 | ⏳ 待讨论 |
+| Q23 num_classes 约定 | ⏳ 待讨论 |
+| Q24 随机种子 | ⏳ 待讨论 |
+| Q25 fp16 unpack dtype | ⏳ 待讨论 |
+| Q26 统计显著性检验 | ⏳ 待讨论 |
+| Q27 主表 + 研究问题 | ⏳ 待讨论 |
 
 ---
 
