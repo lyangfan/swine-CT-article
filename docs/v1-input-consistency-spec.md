@@ -156,7 +156,7 @@ swine-CT-article/data/nnunetv1/
 | 指标 | Dice + HD95(per class) |
 | 条件类 | head 只在 HZAU 上评、testis 只在 TB 上评;head-absent FP 单独统计 |
 | num_classes | 10(含 bg;nnU-Net v1 plan num_classes=9 前景,trainer +1=10) |
-| 统计检验 | mean±std(跨 3 seed)+ 配对 **Wilcoxon signed-rank**(跨 39 test case,4 个 3D 网络两两 C(4,2)=6 对,Holm-Bonferroni 校正;2D nnUNet 不进主检验) |
+| 统计检验 | mean±std(跨 3 seed)+ 配对 **Wilcoxon signed-rank**(per-case mean Dice **先 3-seed 平均后**做检验,跨 39 test case,4 个 3D 网络两两 C(4,2)=6 对,Holm-Bonferroni 校正;2D nnUNet 不进主检验;HD95 仅描述性 mean±std 不做检验) |
 
 ---
 
