@@ -35,7 +35,9 @@ Source: 由 `v1-input-consistency-spec-draft.md`(Q1-Q28 决策)整理而来。
 ## 3. 数据基建
 
 ### 3.1 数据源
-- **197 例** labeled swine CT(9 类胴体分割),2 个 source:
+- **197 例** labeled swine CT(9 类胴体分割 + bg),2 个 source:
+  - **label class**:`0` bg / `1` front / `2` middle / `3` end / `4` left_kidney / `5` right_kidney / `6` testis / `7` thoracic_cavity / `8` abdominal_and_pelvic_cavity / `9` head
+  - 条件类:`6 testis` 仅 TB 有,`9 head` 仅 HZAU 有;其余 7 类两 source 都有
   - HZAU 93 例(Yorkshire,阉猪,head-present/testis-absent)
   - TB 104 例(4 品种:Yorkshire/Landrace/Pietrain/Duroc 各 26,公猪,head-absent/testis-present)
 - 软连接到 `/home/hzau/whcs-share37/liuyangfan/nnunet_medsam_semisup/data/labeled_197/`
@@ -115,10 +117,11 @@ swine-CT-article/data/nnunetv1/
 |---|---|
 | 初始化 | 全 scratch(无预训练) |
 | 预算 | **125,000 iters**(500 ep × 250 iters/epoch,pin `num_iterations_per_epoch=250`) |
-| loss | nnU-Net v1 `DC_and_CE_loss`(SoftDice batch_dice + 加权 CE)。DS 网络(nnU-Net/MedNeXt/SegFormer3D)走 `MultipleOutputLoss2` 多尺度加权;单输出网络(SwinUNETR)直接算。底层同一函数同一参数 |
-| checkpoint | **final**(第 500 ep,LR 衰减到底),不选 best。val 仅监控 |
-| deep supervision | 各网络原版:nnU-Net/MedNeXt/SegFormer3D 保留 DS(多尺度输出),SwinUNETR 单输出。base trainer 按注册的 forward 协议分支,不改架构 |
+| loss | nnU-Net v1 `DC_and_CE_loss`(SoftDice batch_dice + 加权 CE)。DS 网络(nnU-Net/MedNeXt)走 `MultipleOutputLoss2` 多尺度加权;单输出网络(SwinUNETR/SegFormer3D-aniso)直接算。底层同一函数同一参数。DS 权重用 nnU-Net v1 默认(`deep_supervision_scales` 从 plans 派生) |
+| checkpoint | **final**(第 500 ep,LR 衰减到底),不选 best。val 仅监控(频率跟 nnU-Net v1 默认:每 epoch 50 val iters) |
+| deep supervision | 各网络原版:nnU-Net/MedNeXt 保留 DS(多尺度输出);SwinUNETR/**SegFormer3D-aniso 单输出**(SegFormer3D 原版无 DS heads)。base trainer 按注册的 forward 协议分支,不改架构 |
 | effective batch | 2 patches(`physical × grad_accum = 2`;grad accum 的 batch_dice 语义微偏差已记录) |
+| num_workers | 跟 nnU-Net v1 默认(训练 8 / val 4,pin 固定不搜) |
 
 ### 5.3 确定性
 
@@ -142,6 +145,7 @@ swine-CT-article/data/nnunetv1/
 | ensemble | none |
 | post-processing | disabled |
 | softmax | 不保存 |
+| predict batch | 2 |
 | 输出 | argmax segmentation(resample 回原始 spacing)→ nii.gz |
 
 ### 5.5 评估侧
@@ -152,7 +156,7 @@ swine-CT-article/data/nnunetv1/
 | 指标 | Dice + HD95(per class) |
 | 条件类 | head 只在 HZAU 上评、testis 只在 TB 上评;head-absent FP 单独统计 |
 | num_classes | 10(含 bg;nnU-Net v1 plan num_classes=9 前景,trainer +1=10) |
-| 统计检验 | mean±std(跨 3 seed)+ 配对 **Wilcoxon signed-rank**(跨 39 test case,网络两两,Holm-Bonferroni 校正) |
+| 统计检验 | mean±std(跨 3 seed)+ 配对 **Wilcoxon signed-rank**(跨 39 test case,4 个 3D 网络两两 C(4,2)=6 对,Holm-Bonferroni 校正;2D nnUNet 不进主检验) |
 
 ---
 
@@ -181,8 +185,9 @@ swine-CT-article/data/nnunetv1/
 
 ### 6.4 SegFormer3D-aniso(vendored: segformer3d_aniso.py 1 文件)
 - `in_channels=1, num_classes=10`
-- 全 repo 默认:sr_ratios=[4,2,1,1], embed_dims=[32,64,160,256], patch_stride=[4,2,2,2],
-  num_heads=[1,2,5,8], depths=[2,2,2,2], mlp_ratios=[4,4,4,4]
+- 全 repo 默认:sr_ratios=[4,2,1,1], embed_dims=[32,64,160,256], patch_kernel_size=[7,3,3,3],
+  patch_stride=[4,2,2,2], patch_padding=[3,1,1,1], num_heads=[1,2,5,8], depths=[2,2,2,2],
+  mlp_ratios=[4,4,4,4], decoder_head_embedding_dim=256, decoder_dropout=0.0
 - aniso 修复:去 `@torch.jit.script cube_root`,显式 (D,H,W) 穿线(attention/MLP/decoder 不变)
 - DS:单输出(SegFormer3D 原版无 DS)
 - optimizer:AdamW lr=4e-4, wd=1e-5, warmup_cosine(同 SwinUNETR)
@@ -192,6 +197,9 @@ swine-CT-article/data/nnunetv1/
 - 用我们的 split(同 train/val/test case)+ 125,000 iters(同预算)
 - optimizer:SGD lr=0.01, wd=3e-4, poly lr(nnU-Net v1 默认)
 - **不进 3D 主对比表**(单独报告)
+- **确定性注入**:2D nnUNet 走原生 `nnUNet_train 2d`(不走 base trainer),seed 通过
+  `train_paca_deterministic.py` 或等价 wrapper 传入(`install_v1_determinism_patches` 在
+  trainer 初始化前 monkey-patch 全局生效,不需要 base trainer 子类)。3 seed 同 3D。
 
 ---
 
