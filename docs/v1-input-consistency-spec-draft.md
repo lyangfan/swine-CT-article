@@ -365,6 +365,19 @@ Date: 2026-06-21
 3. **Q9 说 fp16,实际机制不明**:~~见 Q25~~ **已关闭(Q25 决策:fp32 unpack + fp16 AMP 训练,Q9 的 --fp16 指训练 AMP)**。
 4. **smoke test 用 num_classes=10,nnU-Net v1 用 9**:见 Q23,要 pin 统一。
 
+### Q28. 目录结构 ✅
+
+- **背景**:实现代码、config、eval、job 脚本要落到仓库,跟现有 data/docs/jobs 协调。
+- **选项**:(a) 按功能分层(framework/configs/evaluation/jobs 子目录);(b) 扁平化 code/;(c) 其它
+- **我的建议**:(a)。
+- **决策**:**按功能分层**:
+  - `framework/` —— 实现核心:`base_trainer.py`(网络无关 nnUNetTrainerV2 子类 + v1 数据管线 + 确定性 + grad accum + 2 forward 协议)、`registry.py`(name→build_fn+forward协议+家族+optimizer/loss)、`train.py`(config 驱动入口)、`predict.py`(统一 sliding-window,Q21)、`nets/`(插件 + vendored 架构:MONAI 系 `xxx.py` import monai;MedNeXt/nnFormer/SegFormer3D-aniso `xxx/` vendored 目录,Q20)
+  - `configs/` —— 每 network 一个 yaml(arch 参数 + family + 超参;**seed 由 job 传入**,3 seed 复用一 config)
+  - `evaluation/` —— `run_eval.py`(locked evaluator)+ `run_stats.py`(Wilcoxon+Holm,Q26)
+  - `jobs/{train,predict,eval}/` —— 每 network×seed 的 DSUB 脚本
+  - 结果(checkpoint/predictions)→ `data/nnunetv1/nnUNet_results/`(只 Huawei,.gitignore 拦)
+  - 加网络 = 加 `framework/nets/` 插件 + 一个 `configs/*.yaml` + job 脚本,不动 base。
+
 ## 决策汇总(讨论后回填)
 
 | Q | 决策 |
@@ -396,6 +409,7 @@ Date: 2026-06-21
 | Q25 fp16 unpack dtype | ✅ fp32 unpack(--unpack-data)+ fp16 AMP 训练,跟 PACA 一致;关闭不一致#3 |
 | Q26 统计显著性检验 | ✅ mean±std + 配对 Wilcoxon(跨 39 case,Holm 校正) |
 | Q27 主表 + 研究问题 | ⏸️ 延后到写作阶段(实验产出 per-class 指标,写作时组织表格) |
+| Q28 目录结构 | ✅ 按功能分层:framework/(base_trainer+registry+train+predict+nets)+configs/+evaluation/+jobs 子目录 |
 
 ---
 
