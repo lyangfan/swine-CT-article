@@ -1,0 +1,30 @@
+=== split sizes ===
+  train: 120
+  val  : 38
+  test : 39
+  total: 197
+
+=== source x split ===
+  source  train   val  test
+  HZAU       56    18    19
+  TB         64    20    20
+
+=== TB breed x split ===
+  breed       train   val  test
+  Yorkshire      16     5     5
+  Landrace       16     5     5
+  Pietrain       16     5     5
+  Duroc          16     5     5
+
+=== source_detail x split ===
+  source_detail                     train   val  test
+  HZAU_veterinary_hospital             56    18    19
+  TB_sequence_846_manual_test_24       15     5     4
+  TB_sequence_846_train_80             49    15    16
+
+=== class-presence coverage per split ===
+  (head evaluable on HZAU, testis evaluable on TB)
+  split   head(HZAU)  testis(TB)
+  train           56          64
+  val             18          20
+  test            19          20

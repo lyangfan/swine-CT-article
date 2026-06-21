@@ -6,21 +6,30 @@
 
 ```
 data/
-├── images/                       # 197 个 CT 源图像软连接
+├── images/                       # 197 个 CT 源图像软连接（Huawei only）
 │   └── {case_id}.nii.gz
-├── labels/                       # 197 个人工分割标注软连接
+├── labels/                       # 197 个人工分割标注软连接（Huawei only）
 │   └── {case_id}.nii.gz
+├── train/{images,labels}/        # 120 例 train 软连接（Huawei only）
+├── val/{images,labels}/          # 38 例 val 软连接（Huawei only）
+├── test/{images,labels}/         # 39 例 test 软连接（Huawei only，冻结）
 ├── manifests/
 │   ├── case_metadata.csv         # 每头猪一行的主元信息表
-│   ├── tb_phenotype.phe          # TB 原始 phenotype 表副本（HZAU 上 795 行 × 151 列）
+│   ├── tb_phenotype.phe          # TB 原始 phenotype 表副本（gitignore，不进 GitHub）
 │   ├── tb_dicom_breed.csv        # TB DICOM 目录 ind→breed 映射（846 个 individual）
-│   ├── hzau_slaughter_breed.csv  # HZAU 屠宰测定表抽出的 case_id→breed 映射（93 行）
+│   └── hzau_slaughter_breed.csv  # HZAU 屠宰测定表抽出的 case_id→breed 映射（93 行）
+├── splits/
+│   ├── split_manifest.csv        # 固定的 case_id→split 划分（197 行，canonical）
+│   ├── split_summary.txt         # source × breed × split 交叉计数
+│   ├── make_split.py             # 生成 split 的可复现脚本（seed 42）
+│   └── materialize_symlinks.sh   # 在 Huawei 上把 split 物化成 train/val/test 软连接目录
 └── README.md                     # 本文件
 ```
 
 软连接指向：
 - `images/` → `/home/hzau/whcs-share37/liuyangfan/nnunet_medsam_semisup/data/labeled_197/images/`
 - `labels/` → `/home/hzau/whcs-share37/liuyangfan/nnunet_medsam_semisup/data/labeled_197/labels/`
+- `train/val/test/{images,labels}/` 同样指向上述 `labeled_197` 真实路径，按 `split_manifest.csv` 分组
 
 实际源文件分布在 HZAU GPU 服务器（`hzau_gpu:/workspace/data/CT/`）。
 
@@ -109,6 +118,59 @@ data/
 
 定义文件：`hzau_gpu:/workspace/data/CT/HZAU_veterinary_hospital/label/labels.json`
 
+## Data Split（固定的 train/val/test 划分）
+
+**这个 split 一次性确定，后续所有实验都按它来，不得改动。** 划分定义在
+`splits/split_manifest.csv`（canonical），物化成 `train/`、`val/`、`test/`
+三个软连接目录（Huawei 上）。
+
+### 划分原则
+
+- **比例**：6:2:2 → train 120 / val 38 / test 39。
+- **TB（104 例，4 品种 × 26）**：按品种分层，每个品种独立切 16 train / 5 val /
+  5 test → 每个 split 里 4 品种完全均衡。**忽略 TB 原有的 manual_test_24**
+  （PACA 文档已声明它不再是固定 blind test），全部 104 例重新参与划分。
+- **HZAU（93 例，全 Yorkshire）**：纯随机 6:2:2，**不考虑批次**、不考虑品种
+  （本来就只有一个品种）。
+- **种子**：固定 `seed = 42`，切分只按 `case_id`（与影像 / 标注内容无关，
+  杜绝特征泄漏）。脚本 `splits/make_split.py` 完全可复现，重跑得到逐字节相同
+  的 `split_manifest.csv`。
+- **无全同胞防泄漏**：第一版不做（phe 表里有父系 / 母系血统号可用于后续
+  rigor 增强，但 CT 分割任务下非必需）。
+
+### 关键约束：source = class presence
+
+HZAU 全为阉猪（**head-present, testis-absent**），TB 全为公猪（**head-absent,
+testis-present**）。因此 source 平衡直接等价于 head / testis 两个 class 的评估
+平衡 —— 必须让两个 source 在每个 split 都按比例出现：
+
+| split | head 可评估 (HZAU) | testis 可评估 (TB) | 合计 |
+|---|---:|---:|---:|
+| train | 56 | 64 | 120 |
+| val | 18 | 20 | 38 |
+| test | 19 | 20 | 39 |
+
+其余 7 类（front/middle/end/kidney×2/cavity×2）两个 source 都有，自然覆盖。
+
+### 使用纪律
+
+- **test 冻结**：只用于最终评估，绝不参与模型选择 / 调参。
+- **val**：用于模型选择和超参调优。
+- 所有实验统一引用 `splits/split_manifest.csv`，不要私下另造 split。
+
+### 划分统计
+
+完整交叉计数见 `splits/split_summary.txt`。核心数字：
+
+| | train | val | test |
+|---|---:|---:|---:|
+| HZAU | 56 | 18 | 19 |
+| TB | 64 | 20 | 20 |
+| TB / Yorkshire | 16 | 5 | 5 |
+| TB / Landrace | 16 | 5 | 5 |
+| TB / Pietrain | 16 | 5 | 5 |
+| TB / Duroc | 16 | 5 | 5 |
+
 ## Manifest Schema
 
 `manifests/case_metadata.csv` 列定义：
@@ -152,7 +214,13 @@ done
 #      剩余 1 例按 HZAU 群体推断为 Yorkshire；来源凭证见 hzau_slaughter_breed.csv
 #    - EB5 → Duroc canonical collapse
 
-# 3. tb_phenotype.phe 与 HZAU 原表比对
+# 3. 重新生成 split（可复现，重跑逐字节相同）
+python3 data/splits/make_split.py
+
+# 4. 在 Huawei 上把 split 物化成 train/val/test 软连接目录
+ssh paca_share 'bash /home/share/hzau/home/liuyangfan/swine-CT-article/data/splits/materialize_symlinks.sh'
+
+# 5. tb_phenotype.phe 与 HZAU 原表比对
 ssh paca_share 'md5sum /home/share/hzau/home/liuyangfan/swine-CT-article/data/manifests/tb_phenotype.phe'
 ssh hzau_gpu    'md5sum /workspace/data/CT/TB/sequence_846/all_original_phenotype.phe'
 # expected: af46ce0241b67dddf0a20968a273d854
