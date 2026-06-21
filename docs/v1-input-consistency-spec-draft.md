@@ -270,75 +270,86 @@ Date: 2026-06-21
 > Q1-Q19 锁定了公平性维度。但从「spec → 实际跑出 8 个网络结果」还差工程集成、运营调度、
 > 科学报告层面的东西。逐题待讨论。
 
-### Q20. 网络集成机制(尤其 nnFormer 的包冲突)
+### Q20. 网络集成机制(尤其 nnFormer 的包冲突)✅
 
-- **背景**:nnFormer repo 是个 **nnU-Net v1 fork**(整个 `nnformer/` 包镜像 nnunet 结构),装进 v1 env 会和真正的 `nnunetv1` 包**命名空间冲突**(`import nnunet` 歧义)。各网络接入方式不一:
-  - MONAI 系(SwinUNETR/UNETR/SegResNet):`pip install monai` 直接 import
-  - MedNeXt:装 `nnunet_mednext`(它依赖 nnunetv1,在 v1 env 里 OK)
-  - SegFormer3D-aniso:单文件,直接放框架里
-  - nnFormer:**要隔离**(只抽模型类,不整体装它的包)
-- **选项**:(a) nnFormer 只 copy 模型类进框架(不 pip install 它的包);(b) 给 nnFormer 单独建 env;(c) 改名空间 hack
-- **我的建议**:
-- **决策**:
+- **背景**:nnFormer repo 是 nnU-Net v1 fork(包命名空间冲突);MedNeXt 的 nnunet_mednext 依赖 nnunet(版本风险)。
+- **选项**:(a) vendoring 非 MONAI 架构 + MONAI pip;(b) nnFormer 单 env;(c) 改名 hack
+- **我的建议**:(a)。
+- **决策**:**vendoring 非 MONAI 架构进框架** `framework/nets/<name>/`(复制 + import 改本地,不 pip install 它们的包):
+  - MedNeXt:3 个架构文件(mednextv1/ 的 create_mednext_v1 + MedNextV1 + blocks,torch only)
+  - nnFormer:模型类 + 3 个内部小依赖(nd_softmax / initialization / neural_network)+ `pip install timm`
+  - SegFormer3D-aniso:1 文件(已修)
+  - MONAI 系(SwinUNETR/UNETR/SegResNet):`pip install monai`(不碰 nnunet,无冲突)
+  - 彻底消除 nnunet 命名空间歧义 + nnunet 版本被动风险。vendored 代码进 git 可追溯。`source/` 已有完整源码挑文件。
 
-### Q21. 预测/推理路径(非 nnU-Net 网络)
+### Q21. 预测/推理路径(非 nnU-Net 网络)✅
 
-- **背景**:nnU-Net 有 `nnUNet_predict`(sliding window + 反预处理回原空间 + 存 nii.gz)。非 nnU-Net
-  网络要同等预测:sliding window、overlap、TTA off、argmax、resample 回原始 spacing。
-- **选项**:(a) base trainer 自带统一 predict 函数(复用 nnU-Net v1 预测机制,所有网络走同一套);
-  (b) 每网络单独写 predict
-- **我的建议**:
-- **决策**:
-- **待 pin 的 predict 参数**:sliding window overlap(0.5?)、TTA off(Q11 已定)、predict batch size。
+- **背景**:nnU-Net 有 `nnUNet_predict`(sliding window + 反预处理回原空间)。非 nnU-Net 网络要同等预测。
+- **选项**:(a) base trainer 自带统一 predict(复用 nnU-Net v1 机制);(b) 每网络单独写
+- **我的建议**:(a)。
+- **决策**:**base trainer 自带统一 predict,复用 nnU-Net v1 的 sliding-window + 反预处理机制**(网络无关,
+  喂 patch → net.forward → 拼 → argmax → resample 回原始 spacing → 存 nii.gz)。所有网络走同一套。
+  **pin 参数**:sliding window overlap=**0.5**,TTA=**off**(Q11),predict batch=**2**,输出 argmax segmentation
+  (反 resample 回原空间)喂 locked evaluator。
 
-### Q22. GPU 分配 + 作业调度
+### Q22. GPU 分配 + 作业调度 ✅
 
-- **背景**:8 个网络(7×3D + 1×2D)各 125,000 iters。每网络几张 GPU?并发几个训?DSUB 批量提交,
-  避开 agent-174,守 GPU 配额。
-- **选项**:(a) 单卡/网络(DDP off,最简单公平,OOM 靠 Q17 grad accum 兜底),按 GPU 空闲并发提交;
-  (b) 多卡 DDP
-- **我的建议**:
-- **决策**:
+- **背景**:8 网络(7×3D + 1×2D)各 125,000 iters。单卡训 500ep 约 1-1.5 天/网络。
+- **选项**:(a) 单卡/网络(DDP off)+ 批量并发;(b) 多卡 DDP
+- **我的建议**:(a)。
+- **决策**:**单卡/网络(DDP off),DSUB `gpu=1` 批量并发**(几个空闲 GPU 就并发几个,7 个 3D 能并起来)。
+  **节点池 = agent 编号 < 170**(170 及以后不用,含已排除的 174)。OOM 靠 Q17 grad accum 兜底,不切多卡
+  (单卡最利于 Q10 state_dict_equal 确定性)。提交前先跑 1 个网络测 iter 速度估总 wall-clock。
 
-### Q23. num_classes 约定
+### Q23. num_classes 约定 ✅
 
-- **背景**:任务 9 前景 + bg。nnU-Net v1 用 num_classes=9(foreground,softmax over 10)。各网络
-  out_channels 要统一。smoke test 用了 10,需跟 nnU-Net v1 对齐。
-- **选项**:(a) 统一 9(跟 nnU-Net v1,softmax over 10 含 bg);(b) 统一 10
-- **我的建议**:
-- **决策**:
+- **背景**:任务标签 0(bg)+1-9(9 前景)= 10 个标签值。CE+softmax 需覆盖 0-9。
+- **选项**:(a) 统一 10(含 bg);(b) 统一 9(覆盖不了 head)
+- **我的建议**:(a) 10。
+- **决策**:**所有网络 out_channels = 10(含 bg,覆盖 labels 0-9),跟 nnU-Net v1 一致。** 核实确认:
+  nnU-Net v1 `nnUNetTrainer.py` L367 `self.num_classes = plans['num_classes'] + 1`(plan num_classes=9 是前景计数,
+  trainer +1 = 10 含 bg);Generic_UNet 输出 10 通道。smoke test 7 网络用 out_channels=10 全部 forward 出
+  `[2,10,64,160,160]` ✓。无歧义。
 
-### Q24. 随机种子策略
+### Q24. 随机种子策略 ✅
 
-- **背景**:Q10 要求 state_dict_equal=true,但具体 seed 值没 pin。所有网络应同一 base seed(公平+可复现)。
-- **选项**:pin 一个 base seed(建议 20260520,跟 PACA 一致),所有网络同 seed。
-- **我的建议**:
-- **决策**:
+- **背景**:Q10 要求 state_dict_equal。无 fold seed(单固定 split,fold=0)。要做多 seed 平均 + worker seed。
+- **选项**:(a) 3 base seed 平均 + worker seed 确定性派生;(b) 单 seed / 每 network 不同 seed
+- **我的建议**:(a)。
+- **决策**:**3 个 base seed = 20260520 / 20260521 / 20260522**(第一个延续 PACA swine CT)。无 fold seed(fold=0,
+  fold_seed=base_seed)。每个网络跑 **3 次**(3 个 seed),test 上评 final checkpoint,**报告 mean±std 跨 3 次**。
+  **worker seed 确定性派生**自 base_seed(`install_v1_determinism_patches`:train workers=`[base+1000+i]`、
+  val=`[base+2000+i]`,每 worker 内 random/numpy/torch 全 seed,记 seed_policy JSON)。给定 base_seed 全随机性确定 → state_dict_equal。
+  **代价:计算量 3×(共 24 个训练 job:7 网络×3 + 2D nnUNet×3)**;unpacked npy 只生成一次(3 seed 共用)。
 
-### Q25. fp16 unpack 的 dtype 口径(澄清 Q9)
+### Q25. fp16 unpack 的 dtype 口径(澄清 Q9)✅
 
-- **背景**:Q9 写"自己 unpack --fp16",但 nnU-Net v1 标准 `--unpack-data` 产 **fp32 npy**(~100GB+),
-  `--fp16` 是训练 AMP 的 flag。HZAU 提过 `_unpack_fp16` 变体。需澄清 unpack npy 是 fp32 还是 fp16,
-  以及 fp16 AMP 下 state_dict_equal(PACA 说可达,要确认 stack)。
-- **选项**:(a) fp32 unpack + fp16 AMP 训练;(b) fp16 unpack(若有路径);(c) 全 fp32(最稳但慢/大)
-- **我的建议**:
-- **决策**:
+- **背景**:Q9 的"--fp16"混淆了 unpack dtype 和训练 AMP。标准 nnU-Net v1 `--unpack-data` 产 fp32 npy;`--fp16` 是训练 AMP flag。
+- **选项**:(a) fp32 unpack + fp16 AMP;(b) fp16 unpack(自定义);(c) 全 fp32 训练
+- **我的建议**:(a)。
+- **决策**:**fp32 unpack(标准 `--unpack-data`,158 例 ~100-136GB,一次性,3 seed 共用)+ fp16 AMP 训练(`--fp16`)**。
+  跟 PACA 完全一致(`train_paca_deterministic.py` 就是 unpack_data=True + fp16 + deterministic),
+  state_dict_equal 已验证可达(fp16 AMP 的不确定性被 nnunetv1_compat patch 覆盖)。
+  **澄清 Q9 笔误**:Q9 的"--fp16"指训练 AMP,unpack 是 fp32。**不一致标记 #3 据此关闭**;#1(unpack 是训练时
+  `nnUNet_train --unpack-data`,不是 plan_and_preprocess)也据此明确。
 
-### Q26. 统计显著性检验
+### Q26. 统计显著性检验 ✅
 
-- **背景**:7 网络在 39 test case 上比,主表 mean±std 还是配对显著性检验(paired t-test / Wilcoxon
-  跨 39 case)?影响结论力度。
-- **选项**:(a) 纯描述 mean±std;(b) 加配对显著性检验;(c) 两者都报
-- **我的建议**:
-- **决策**:
+- **背景**:7 网络 × 3 seed。网络间差异是否显著?
+- **选项**:(a) 纯描述 mean±std;(b) 配对显著性检验;(c) 两者都报
+- **我的建议**:(c)。
+- **决策**:**两者都报** —— mean±std(跨 3 seed,描述整体水平)+ **配对 Wilcoxon signed-rank**(跨 39 test case,
+  网络两两 C(7,2)=21 对,**Holm-Bonferroni 多重比较校正**)。per-case 指标先 3-seed 平均再做检验。
+  Wilcoxon 是医学分割标配(非参数,对 Dice 偏态稳健)。scipy stats 实现,评估后加 stats 脚本。
 
-### Q27. 文章主表结构 + 研究问题
+### Q27. 文章主表结构 + 研究问题(延后到写作阶段)
 
-- **背景**:spec 全是公平对比机制,但文章的科学 claim(这批各向异性猪 CT 上架构间什么结论?)没写明。
-  主表报哪些列(per-class Dice/HD95?条件类单独?mean?)?要不要额外分析。
-- **选项**:(待定,偏写作,但影响要不要额外分析)
-- **我的建议**:
-- **决策**:
+- **背景**:spec 全是公平对比机制,但文章的科学 claim + 主表结构没定。
+- **选项**:(i) 架构家族对比;(ii) +2D/3D 维度;(iii) 公平对比方法论;(iv) 其它
+- **我的建议**:(i)+(ii),主表 8 方法 × per-class Dice/HD95 + mean±std + 显著性标记。
+- **决策**:**暂缓,写作阶段再定**(用户 2026-06-22)。不影响实验执行(实验产出 per-class 指标,
+  写作时按需组织表格)。默认主表:行=8 方法(7×3D + 2D nnUNet 分隔),列=per-class Dice/HD95 + mean,
+  数值=3-seed mean±std + Wilcoxon 显著性标记(Q26)。
 
 ---
 
@@ -351,7 +362,7 @@ Date: 2026-06-21
    - unpacked npy **还没生成**,首次训练时才会产(~fp32 100GB+ 或 fp16,见 Q25)。待 Q25 定 dtype。
 2. **路线图 plugin 列表过期**:路线图 step 3 只列了 nnU-Net + SwinUNETR 两个 plugin,但 Q1/Q14 已扩到
    7 个网络(nnU-Net/SwinUNETR/UNETR/SegResNet/MedNeXt/nnFormer/SegFormer3D-aniso)+ 2D nnUNet。要更新。
-3. **Q9 说 fp16,实际机制不明**:见 Q25,需澄清 unpack dtype + AMP 确定性 stack。
+3. **Q9 说 fp16,实际机制不明**:~~见 Q25~~ **已关闭(Q25 决策:fp32 unpack + fp16 AMP 训练,Q9 的 --fp16 指训练 AMP)**。
 4. **smoke test 用 num_classes=10,nnU-Net v1 用 9**:见 Q23,要 pin 统一。
 
 ## 决策汇总(讨论后回填)
@@ -377,14 +388,14 @@ Date: 2026-06-21
 | Q17 effective batch | ✅ effective=2,grad accum 兜底(语义 caveat 记录) |
 | Q18 weight decay/scheduler | ✅ scheduler 跟家族,wd 固定小值不搜(CNN 3e-4/T 1e-5,lr 写死) |
 | Q19 2D nnUNet 处理 | ✅ 单独类别参考基线,走 nnU-Net 2D pipeline,不进 3D 主对比表 |
-| Q20 网络集成(nnFormer 冲突) | ⏳ 待讨论 |
-| Q21 预测/推理路径 | ⏳ 待讨论 |
-| Q22 GPU 分配 + 调度 | ⏳ 待讨论 |
-| Q23 num_classes 约定 | ⏳ 待讨论 |
-| Q24 随机种子 | ⏳ 待讨论 |
-| Q25 fp16 unpack dtype | ⏳ 待讨论 |
-| Q26 统计显著性检验 | ⏳ 待讨论 |
-| Q27 主表 + 研究问题 | ⏳ 待讨论 |
+| Q20 网络集成(nnFormer 冲突) | ✅ vendoring 非 MONAI 架构 + MONAI pip + timm |
+| Q21 预测/推理路径 | ✅ 统一 predict 复用 nnU-Net v1 sliding-window,overlap 0.5,TTA off |
+| Q22 GPU 分配 + 调度 | ✅ 单卡/网络 DDP off,批量并发,节点池 agent<170 |
+| Q23 num_classes 约定 | ✅ 统一 10(含 bg),跟 nnU-Net v1 plan+1 一致 |
+| Q24 随机种子 | ✅ 3 base seed(20260520/21/22)平均,无 fold seed,worker seed 确定性派生,共 24 job |
+| Q25 fp16 unpack dtype | ✅ fp32 unpack(--unpack-data)+ fp16 AMP 训练,跟 PACA 一致;关闭不一致#3 |
+| Q26 统计显著性检验 | ✅ mean±std + 配对 Wilcoxon(跨 39 case,Holm 校正) |
+| Q27 主表 + 研究问题 | ⏸️ 延后到写作阶段(实验产出 per-class 指标,写作时组织表格) |
 
 ---
 
