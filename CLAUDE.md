@@ -124,6 +124,13 @@ mirror；默认两方向都不加。
     source 在 train/val/test 里按比例出现。
 - **品种**：canonical **4 分类**，EB5 已折入 Duroc；HZAU 品种来自屠宰测定表
   （非 CT 目录自带），TB 品种来自 DICOM 目录结构。
+- **label class**（label NIfTI 里的整数，共 9 类前景 + background）：
+  `0` background / `1` front / `2` middle / `3` end / `4` left_kidney /
+  `5` right_kidney / `6` testis / `7` thoracic_cavity /
+  `8` abdominal_and_pelvic_cavity / `9` head。其中 `6 testis` 仅 TB 有、
+  `9 head` 仅 HZAU 有（条件性 class，见上 source 条）；front/middle/end/kidney×2/
+  cavity×2 两 source 都有。定义文件
+  `hzau_gpu:/workspace/data/CT/HZAU_veterinary_hospital/label/labels.json`。
 - **固定 split**（一次性确定，所有实验共用，不得改动）：6:2:2、seed 42 →
   **train 120 / val 38 / test 39**。TB 按品种分层（每品种 16/5/5），HZAU 纯随机。
   canonical 定义在 `data/splits/split_manifest.csv`；Huawei 上物化成
