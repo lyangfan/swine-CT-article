@@ -201,6 +201,10 @@ Date: 2026-06-21
   `gt_segmentations/`(158)、2D/3D plans、dataset.json。
   **`[64,160,160]` 天然被 32 整除**(64=32×2,160=32×5)→ SwinUNETR/UNETR/MedNeXt 直接用,**无需调整,
   Q14 整除担心完全消解**。所有网络统一 `[64,160,160]` + batch 2。
+  **GPU forward smoke test 实测**(DSUB 564161,`source/smoke_test_patch.py`,patch `[2,1,64,160,160]`):
+  ✅ SwinUNETR / UNETR / SegResNet / MedNeXt-S / **nnFormer(patch_size=`[4,4,4]`)** 全部 forward 通过;
+  ❌ SegFormer3D 失败(torch 2.4 下 `@torch.jit.script cube_root` import 崩 + cube_root 立方假设,待去留定)。
+  ⚠️ **nnFormer 必须用 patch_size=`[4,4,4]`**(默认 `[2,4,4]` 因 PatchEmbed 的 `(patch//2)²` 下采样 bug 失败,属 config 选择非架构改动)。
 
 ### Q15. 损失函数一致性
 

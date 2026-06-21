@@ -19,3 +19,4 @@
 # CT image / label dirs (Huawei symlinks, never local)
 images/
 labels/
+source/
