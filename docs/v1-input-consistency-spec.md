@@ -338,12 +338,9 @@ swine-CT-article/
 - **输出**:最终结果表(4 网络 × per-class Dice/HD95 ± std + 显著性)
 - **依赖**:Stage 5
 
-### Stage 7:确定性审计(可并行 Stage 4-6)
-- [ ] 每网络跑 determinism smoke(3-epoch,2 run 同 seed,比 state_dict_equal)
-- [ ] 要求 state_dict_equal=true + optimizer_state_dict_equal=true
-- [ ] 非 bitwise 的 plot_stuff/best_stuff 浮点末位差不 fail
-- **输出**:每网络确定性 PASS 记录
-- **依赖**:Stage 2(trainer)+ Stage 3(网络)
+### Stage 7:确定性审计(不做)
+- 确定性设置(cudnn.deterministic + seeds + worker seeds)在 base trainer 里固定生效,
+  不单独跑 determinism smoke 验证。PACA 已在 nnU-Net v1 + A100 上验证过 state_dict_equal=true。
 
 ---
 
