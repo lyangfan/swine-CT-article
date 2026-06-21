@@ -168,3 +168,24 @@ Host hzau_gpu
 - Connect with `ssh hzau_gpu`, or `ssh -p 2225 root@211.69.141.179` if the
   alias is unavailable.
 - Verified in this project context: hostname `565d8e27d8a8`, user `root`.
+
+## 启动独立 subagent
+
+当需要"真正独立"的 subagent(全新进程、零父会话上下文,如独立审查 / 复核)时:
+
+- 本 harness 暴露的 `Task*` 工具(`TaskCreate` 等)**只是待办追踪器**,不执行任何东西;
+  会话内的 `Task(subagent_type=…, prompt=…)` 在这里调不到。
+- **用 Bash 调 `claude` CLI 起子进程**(本机 `/usr/local/bin/claude`,v2.1.185):
+
+  ```bash
+  claude -p "$(cat /path/to/self-contained-prompt.md)" \
+         --model sonnet --dangerously-skip-permissions
+  ```
+
+- `-p`=非交互输出;`--dangerously-skip-permissions`=让 ssh/bash 无人值守跑(不加会卡权限提示);
+  `--ephemeral` 在此版本**不支持**(报 unknown option),别加。
+- prompt **必须自包含**:子进程是新 session,看不到本会话任何上下文 —— 路径、
+  期望值、ssh 别名(`paca_share`)、只读约束全要写进去。
+- print 模式跑完才一次性输出;长任务会自动转后台,完成时通知。重 I/O 任务(如
+  逐个读 NIfTI)可能几十分钟,可在 prompt 里要求"合并成一次 ssh + 抽样验证"加速。
+- 源参考:AutoScientists `source_code_claude/system/reference/AGENT-SETUP.md`。
