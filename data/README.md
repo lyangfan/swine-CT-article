@@ -23,6 +23,14 @@ data/
 │   ├── split_summary.txt         # source × breed × split 交叉计数
 │   ├── make_split.py             # 生成 split 的可复现脚本（seed 42）
 │   └── materialize_symlinks.sh   # 在 Huawei 上把 split 物化成 train/val/test 软连接目录
+├── nnunetv1/                     # nnU-Net v1 Task（Huawei only，软连接到 labeled_197）
+│   ├── build_task601.py          # 可复现的 Task 搭建脚本
+│   └── Task601_Article622_Carcass9Class/
+│       ├── dataset.json          # v1 风格，numTraining=158
+│       ├── imagesTr/labelsTr/    # train+val 158 例软连接
+│       ├── imagesTs/labelsTs/    # test 39 例软连接（冻结，训练时不可见）
+│       ├── splits_final.{json,pkl}  # 单 fold：train 120 / val 38
+│       └── audit_manifest.json   # 计数、SHA256、软连接校验、split 完整性、平衡审计
 └── README.md                     # 本文件
 ```
 
@@ -170,6 +178,38 @@ testis-present**）。因此 source 平衡直接等价于 head / testis 两个 c
 | TB / Landrace | 16 | 5 | 5 |
 | TB / Pietrain | 16 | 5 | 5 |
 | TB / Duroc | 16 | 5 | 5 |
+
+## nnU-Net v1 Task（Task601_Article622_Carcass9Class）
+
+文章用 nnU-Net **v1**。Task 搭在 `data/nnunetv1/`，全部软连接到 `labeled_197`，
+零复制。采用 **方案 A**：固定 split 直接映射成单 fold，test 完全 held-out。
+
+**目录布局**：
+
+| 路径 | 内容 |
+|---|---|
+| `Task601.../imagesTr/`、`labelsTr/` | train+val **158** 例软连接（`{case}_0000.nii.gz`） |
+| `Task601.../imagesTs/`、`labelsTs/` | test **39** 例软连接（冻结，训练时不可见） |
+| `Task601.../dataset.json` | v1 风格，`numTraining=158`，9 类 label，`training`/`test` 数组 |
+| `Task601.../splits_final.{json,pkl}` | 单 fold：`{train: 120, val: 38}`，从 `splits/split_manifest.csv` 生成 |
+| `Task601.../audit_manifest.json` | 计数、dataset.json SHA256、软连接校验、split 完整性、source/breed 平衡 |
+| `nnunetv1/build_task601.py` | 可复现搭建脚本（Huawei 上跑，幂等） |
+
+**关键设计**：
+- **方案 A**：`splits_final.pkl` 只有一个 fold，train=120 / val=38；test 39 在
+  `imagesTs` 里，**不进 split、训练时完全看不到**，训练后单独 predict+eval。
+- **单一数据源**：所有 images/labels 软连接到 `labeled_197`（与 `swine_ct_autonomous_discovery`
+  的 v1 tasks 同源），与现有 v1 基建完全一致。
+- v1 环境用 `swine_ct_autonomous_discovery/envs/nnunetv1` + deterministic runner；
+  预处理产物可复用 `swine_ct_autonomous_discovery/v1_ratio_nnunet/shared_unpacked_cache/all197_stage1`（plans_v2.1，省 ~110GB）。
+
+**下一步（尚未执行）**：
+1. `nnUNet_plan_and_preprocess -t 601`（在 v1 env 下，用 `nnUNet_raw_data_base` /
+   `nnUNet_preprocessed` 指向 `data/nnunetv1`）
+2. 把 `splits_final.pkl` 复制进 `nnUNet_preprocessed/Task601.../`（覆盖自动 5-fold）
+3.（可选）stage1 `.npy` 软连接到 shared unpacked cache
+4. `nnUNet_train 3d_fullref ... 601 0`（只跑 fold 0）
+5. `nnUNet_predict -i imagesTs` 预测 test 39，再用现有 evaluator 评估
 
 ## Manifest Schema
 
