@@ -74,10 +74,18 @@ set -euo pipefail
 export SWCT_RESPECT_EXISTING_NNUNETV1_PATHS=1
 export nnUNet_raw_data_base={ARTICLE}/data/nnunetv1
 export nnUNet_preprocessed={ARTICLE}/data/nnunetv1/nnUNet_preprocessed
-export RESULTS_FOLDER={ARTICLE}/data/nnunetv1/v1_comparison_2d_root/seed{seed}/runs/nnunet_2d__seed{seed}
 source /home/share/hzau/home/liuyangfan/swine_ct_autonomous_discovery/runs/swct06042040_codex_hv1_kidney_phase2_v3/task/tools/adopted/setup_nnunetv1_env.sh
 module load libs/openblas/0.3.18_kgcc9.3.1
 export OMP_NUM_THREADS=8 OPENBLAS_NUM_THREADS=8 MKL_NUM_THREADS=8 NUMEXPR_NUM_THREADS=8
+
+# train_paca_deterministic.py writes to runs/<run>/fold_0/; nnUNet_predict expects
+# $RESULTS_FOLDER/2d/Task<id>/<trainer>__<plans>/fold_0/. Bridge with a symlink.
+RUN_DIR={ARTICLE}/data/nnunetv1/v1_comparison_2d_root/seed{seed}/runs/nnunet_2d__seed{seed}
+LAYOUT={ARTICLE}/data/nnunetv1/v1_comparison_2d_nnunet_layout/seed{seed}
+TASK=Task601_Article622_Carcass9Class
+mkdir -p "${{LAYOUT}}/2d/${{TASK}}/nnUNetTrainerV2__nnUNetPlansv2.1"
+ln -sfn "${{RUN_DIR}}/fold_0" "${{LAYOUT}}/2d/${{TASK}}/nnUNetTrainerV2__nnUNetPlansv2.1/fold_0"
+export RESULTS_FOLDER="${{LAYOUT}}"
 
 INPUT={ARTICLE}/data/nnunetv1/nnUNet_raw_data/Task601_Article622_Carcass9Class/imagesTs
 OUT={ARTICLE}/data/nnunetv1/v1_comparison_predictions/nnunet_2d__seed{seed}
