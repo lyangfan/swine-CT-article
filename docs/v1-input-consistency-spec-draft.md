@@ -43,6 +43,39 @@ Date: 2026-06-21
 
 **训练 job:5 网络 × 3 seed = 15 个**(原 24 减到 15)。
 
+## 网络架构超参(已 pin,2026-06-22)
+
+> 写 configs/*.yaml 的 arch 参数参考。nnU-Net v1 和 2D nnUNet 全自动(planner),不需要手写。
+
+### nnU-Net v1
+- 全部从 Task601 plans 自动(base_features / num_pool / conv_kernels / pool_kernels),已算完(Q14)。
+
+### SwinUNETR(MONAI)
+- `in_channels=1, out_channels=10`（Q23）
+- `feature_size=48`（PACA swinunetr_scratch.yaml + MONAI 默认）
+- `depths=[2,2,2,2], num_heads=[3,6,12,24], window_size=7`
+- `norm_name="instance"`
+- `drop_rate=0.0, attn_drop_rate=0.0, dropout_path_rate=0.0`
+- **`use_v2=True`**（SwinUNETR-V2,MICCAI 2023,更强;PACA 用此版）
+- `spatial_dims=3`
+
+### MedNeXt-S(vendored,create_mednext_v1）
+- `num_input_channels=1, num_classes=10`（Q23）
+- `model_id="S"` → n_channels=32, block_counts=[2,2,2,2,2,2,2,2,2]（自动）
+- `kernel_size=3`（3×3×3,smoke test 验证）
+- `exp_r=4`（paper 默认）
+- **`deep_supervision=True`**（paper 原版;base trainer 走 DS 列表 forward 协议）
+- **`do_res=True`**（paper 原版,MedNeXt block 内残差）
+- **`do_res_up_down=True`**（paper 原版,resampling block 残差）
+- `norm_type="group"`（paper 默认）
+
+### SegFormer3D-aniso(vendored)
+- `in_channels=1, num_classes=10`（Q23）
+- 全部用 repo/paper 默认:`sr_ratios=[4,2,1,1], embed_dims=[32,64,160,256], patch_kernel_size=[7,3,3,3], patch_stride=[4,2,2,2], patch_padding=[3,1,1,1], num_heads=[1,2,5,8], depths=[2,2,2,2], mlp_ratios=[4,4,4,4], decoder_head_embedding_dim=256, decoder_dropout=0.0`
+
+### 2D nnUNet
+- 全部从 2D plans 自动（`_2D_stage0` 已生成）。
+
 ## 统一 nnunetv1 环境(华为)
 
 所有 v1 预处理 / 训练统一用 `swine_ct_autonomous_discovery` 那套**已验证**的 nnunetv1 环境。
