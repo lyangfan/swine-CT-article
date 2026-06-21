@@ -154,6 +154,12 @@ Date: 2026-06-21
 - **决策**:**所有网络都要求 `state_dict_equal=true`。** base trainer 装 `install_v1_determinism_patches`
   (cudnn deterministic、seed everything、python hash seed 等),所有注册网络享受同一套确定性保证。
   确定性是框架级、与具体网络无关;SwinUNETR 等无内在不可复现因素,同杆可达。
+  **cudnn 澄清(2026-06-22)**:所有网络(含 transformer)用**跟 nnU-Net v1 完全一致的确定性栈**:
+  `cudnn.deterministic=True` + `cudnn.benchmark=False` + seed everything(python/numpy/torch/cuda)+ worker seeds
+  (train `[base+1000+i]`/val `[base+2000+i]`)+ PYTHONHASHSEED。**不额外关 TF32 / 不加
+  `torch.use_deterministic_algorithms`**(PACA 在 A100 上用这套栈对 nnU-Net v1 验证了 state_dict_equal=true
+  + optimizer_state_dict_equal=true,同节点 + 跨节点都过;非 bitwise 的只有 plot_stuff/best_stuff 浮点末位差,
+  非本质)。PACA determinism smoke 用的就是这套(setup: A100/cudnn8.8.1/torch2.4.1+cuda118/fp16 AMP)。
 
 ### Q11. 评估口径 ✅
 
