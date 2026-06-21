@@ -1,0 +1,25 @@
+# 2D nnUNet reference (separate category, NOT in the 3D main comparison table).
+# Trained via the existing train_paca_deterministic.py --network 2d wrapper
+# (native nnUNetTrainerV2_2D, NOT the MultiNetworkTrainer). Determinism patches
+# apply globally via install_v1_determinism_patches before trainer init.
+network: nnunet_2d
+architecture: "Generic_UNet (2D, auto-configured from Task601 2D plans _2D_stage0)"
+entry: train_paca_deterministic.py
+optimizer:
+  type: SGD
+  lr: 0.01
+  weight_decay: 3.0e-4
+  scheduler: poly_lr
+loss:
+  type: DC_and_CE_loss
+  batch_dice: true
+budget:
+  max_num_epochs: 500
+  num_batches_per_epoch: 250
+  num_val_batches_per_epoch: 50
+checkpoint: model_final_checkpoint.model
+determinism:
+  cudnn_deterministic: true
+  cudnn_benchmark: false
+  fp16: true
+note: "2D-only; reported as a separate reference, not in the 3D main comparison or the Wilcoxon test."

@@ -1,0 +1,40 @@
+# SegFormer3D-aniso (vendored, CVPR-W 2024) — lightweight efficient transformer.
+network: segformer3d
+architecture: "SegFormer3D-aniso (embed_dims=[32,64,160,256], sr_ratios=[4,2,1,1], depths=[2,2,2,2])"
+forward_protocol: single_output           # no DS heads (SegFormer3D original)
+family: transformer                       # AdamW + warmup_cosine (same as SwinUNETR)
+build:
+  in_channels: 1
+  num_classes: 10
+  sr_ratios: [4, 2, 1, 1]
+  embed_dims: [32, 64, 160, 256]
+  patch_kernel_size: [7, 3, 3, 3]
+  patch_stride: [4, 2, 2, 2]
+  patch_padding: [3, 1, 1, 1]
+  num_heads: [1, 2, 5, 8]
+  depths: [2, 2, 2, 2]
+  mlp_ratios: [4, 4, 4, 4]
+  decoder_head_embedding_dim: 256
+  decoder_dropout: 0.0
+optimizer:
+  type: AdamW
+  lr: 4.0e-4
+  weight_decay: 1.0e-5
+  scheduler: warmup_cosine
+  warmup_ratio: 0.05
+  min_lr_ratio: 0.01
+  min_lr_floor: 1.0e-6
+loss:
+  type: DC_and_CE_loss
+  deep_supervision: none                  # single output → direct
+  batch_dice: true
+budget:
+  max_num_epochs: 500
+  num_batches_per_epoch: 250
+  num_val_batches_per_epoch: 50
+  effective_batch: 2
+checkpoint: model_final_checkpoint.model
+determinism:
+  cudnn_deterministic: true
+  cudnn_benchmark: false
+  fp16: true

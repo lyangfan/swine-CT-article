@@ -1,0 +1,40 @@
+# SwinUNETR-V2 (MONAI) — 3D transformer flagship.
+network: swinunetr
+architecture: "MONAI SwinUNETR-V2 (feature_size=48, window=7, depths=[2,2,2,2], num_heads=[3,6,12,24])"
+forward_protocol: single_output           # no DS heads
+family: transformer                       # AdamW + warmup_cosine
+build:
+  in_channels: 1
+  out_channels: 10
+  spatial_dims: 3
+  feature_size: 48
+  depths: [2, 2, 2, 2]
+  num_heads: [3, 6, 12, 24]
+  window_size: 7
+  norm_name: instance
+  use_v2: true
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  dropout_path_rate: 0.0
+optimizer:
+  type: AdamW
+  lr: 4.0e-4
+  weight_decay: 1.0e-5
+  scheduler: warmup_cosine
+  warmup_ratio: 0.05                      # 6 250 of 125 000 iters
+  min_lr_ratio: 0.01
+  min_lr_floor: 1.0e-6
+loss:
+  type: DC_and_CE_loss                    # same underlying fn/params as nnU-Net
+  deep_supervision: none                  # single output → direct
+  batch_dice: true
+budget:
+  max_num_epochs: 500
+  num_batches_per_epoch: 250
+  num_val_batches_per_epoch: 50
+  effective_batch: 2
+checkpoint: model_final_checkpoint.model
+determinism:
+  cudnn_deterministic: true
+  cudnn_benchmark: false
+  fp16: true

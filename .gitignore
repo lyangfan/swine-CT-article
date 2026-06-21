@@ -20,3 +20,8 @@
 images/
 labels/
 source/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo

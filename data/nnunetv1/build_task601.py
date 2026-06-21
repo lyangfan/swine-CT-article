@@ -28,7 +28,7 @@ CASE_META = ARTICLE_DATA / "manifests" / "case_metadata.csv"
 LABELED_197 = Path(
     "/home/hzau/whcs-share37/liuyangfan/nnunet_medsam_semisup/data/labeled_197"
 )
-TASK_DIR = ARTICLE_DATA / "nnunetv1" / "Task601_Article622_Carcass9Class"
+TASK_DIR = ARTICLE_DATA / "nnunetv1" / "nnUNet_raw_data" / "Task601_Article622_Carcass9Class"
 
 LABELS = {
     "0": "background", "1": "front", "2": "middle", "3": "end",

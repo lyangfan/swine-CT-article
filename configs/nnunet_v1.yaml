@@ -1,0 +1,28 @@
+# nnU-Net v1 (Generic_UNet) — 3D, from Task601 plans.
+# Hyper-params are pinned in framework/base_trainer.py; this file is the
+# human-readable record of what is locked for this network.
+network: nnunet_v1
+architecture: "Generic_UNet (auto-configured from Task601 3d_fullres stage1 plans)"
+forward_protocol: deep_supervision       # native multi-scale DS
+family: cnn                               # SGD + poly
+optimizer:
+  type: SGD
+  lr: 0.01
+  momentum: 0.99
+  weight_decay: 3.0e-4
+  nesterov: true
+  scheduler: poly_lr                      # nnU-Net v1 default, exp=0.9
+loss:
+  type: DC_and_CE_loss                    # SoftDice(batch_dice) + weighted CE
+  deep_supervision: MultipleOutputLoss2   # DS weights: 1/2^i, drop lowest, renorm
+  batch_dice: true
+budget:
+  max_num_epochs: 500
+  num_batches_per_epoch: 250              # 125 000 iters total
+  num_val_batches_per_epoch: 50
+  effective_batch: 2                      # physical 2 × grad_accum 1
+checkpoint: model_final_checkpoint.model  # final, not best (spec Q16)
+determinism:
+  cudnn_deterministic: true
+  cudnn_benchmark: false
+  fp16: true                              # AMP + determinism patches = reproducible

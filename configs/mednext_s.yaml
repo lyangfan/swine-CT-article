@@ -1,0 +1,43 @@
+# MedNeXt-S (vendored, MICCAI 2023) — modern ConvNet (ConvNeXt blocks).
+network: mednext_s
+architecture: "MedNeXt-S (n_channels=32, kernel=3, exp_r=4, block_counts=[2]*9, group norm, DS=5)"
+forward_protocol: deep_supervision        # 5-level decoder DS (isotropic)
+family: cnn                               # SGD + poly (paper default)
+build:
+  in_channels: 1
+  n_classes: 10
+  n_channels: 32
+  kernel_size: 3
+  exp_r: 4
+  norm_type: group
+  deep_supervision: true
+  do_res: true
+  do_res_up_down: true
+  block_counts: [2, 2, 2, 2, 2, 2, 2, 2, 2]
+deep_supervision_scales_override:
+  - [1.0, 1.0, 1.0]                       # MedNeXt's 5-level isotropic decoder
+  - [0.5, 0.5, 0.5]                       # (independent of the plan's 6-level
+  - [0.25, 0.25, 0.25]                    #  anisotropic pooling)
+  - [0.125, 0.125, 0.125]
+  - [0.0625, 0.0625, 0.0625]
+optimizer:
+  type: SGD
+  lr: 0.01
+  momentum: 0.99
+  weight_decay: 3.0e-4
+  nesterov: true
+  scheduler: poly_lr                      # same as nnU-Net v1
+loss:
+  type: DC_and_CE_loss
+  deep_supervision: MultipleOutputLoss2   # DS weights: 1/2^i, drop lowest, renorm (5 levels)
+  batch_dice: true
+budget:
+  max_num_epochs: 500
+  num_batches_per_epoch: 250
+  num_val_batches_per_epoch: 50
+  effective_batch: 2
+checkpoint: model_final_checkpoint.model
+determinism:
+  cudnn_deterministic: true
+  cudnn_benchmark: false
+  fp16: true
