@@ -113,6 +113,27 @@ mirror；默认两方向都不加。
 - 不要把 AutoScientists、PACA、`swine_ct_autonomous_discovery` 的数据 / 输出
   混进本目录；那些 workspace 各自有自己的同步规则。
 
+## 数据集（197 例 labeled swine CT，9 类胴体分割）
+
+详细文档在 `data/README.md`；本节只列**影响实验**的关键事实，深入时再读 README。
+
+- **2 个 source / class presence**（最重要的分层维度）：
+  - `HZAU` 93 例：全 Yorkshire、阉猪 → **head-present / testis-absent**
+  - `TB` 104 例：Yorkshire / Landrace / Pietrain / Duroc 各 26、公猪 → **head-absent / testis-present**
+  - head 只能在 HZAU 上评、testis 只能在 TB 上评，所以任何 split 都必须让两个
+    source 在 train/val/test 里按比例出现。
+- **品种**：canonical **4 分类**，EB5 已折入 Duroc；HZAU 品种来自屠宰测定表
+  （非 CT 目录自带），TB 品种来自 DICOM 目录结构。
+- **固定 split**（一次性确定，所有实验共用，不得改动）：6:2:2、seed 42 →
+  **train 120 / val 38 / test 39**。TB 按品种分层（每品种 16/5/5），HZAU 纯随机。
+  canonical 定义在 `data/splits/split_manifest.csv`；Huawei 上物化成
+  `data/{train,val,test}/{images,labels}/` 软连接。**test 冻结**（仅最终评估），
+  val 用于模型选择。重新生成跑 `data/splits/make_split.py`（逐字节可复现）。
+- **文件分布**：本地只有 `data/manifests/`（`case_metadata.csv` 等）+
+  `data/splits/`（split 定义 + 脚本）+ `data/README.md`，都是小文件、canonical；
+  影像 `images/`、`labels/` 和 train/val/test 软连接目录**只在 Huawei**。
+  本地不存任何 `.nii.gz`，查文件清单直接读 `case_metadata.csv`。
+
 ## GitHub
 
 - 仓库：`https://github.com/lyangfan/swine-CT-article`
