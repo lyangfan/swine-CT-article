@@ -24,6 +24,25 @@ Date: 2026-06-21
 - 加新网络 = 注册一个 builder,不改 base、不改数据管线。
 - 第一个具体网络:SwinUNETR(作为首个 plugin 实现)。
 
+## 最终阵容(2026-06-22 定)
+
+**4 个 3D + 1 个 2D**,优先最新 + 每条路线一个代表作:
+
+| 网络 | 年份 | 路线 | 保留理由 |
+|---|---|---|---|
+| **nnU-Net v1** | 2020 | 经典 CNN(数据驱动 auto-config) | baseline 标准 |
+| **MedNeXt-S** | 2023 MICCAI | 现代 ConvNet(ConvNeXt) | 最新卷积 |
+| **SwinUNETR** | 2022 | transformer 旗舰(Swin,MONAI) | 最广泛使用 |
+| **SegFormer3D-aniso** | 2024 CVPR-W | 最新 transformer(轻量高效) | 最新架构(已修 aniso) |
+| **2D nnUNet** | — | 2D 参考(单独类别,Q19) | 2D/3D 维度对比 |
+
+**已砍(2026-06-22):**
+- SegResNet(2018)—— 最老,CNN 已有 nnU-Net 代表。
+- UNETR(2022)—— SwinUNETR 前身(同作者),SwinUNETR 足够代表 transformer。
+- nnFormer(2022)—— 路线重叠 + vendoring 最麻烦(fork 冲突 + patch_size bug)。
+
+**训练 job:5 网络 × 3 seed = 15 个**(原 24 减到 15)。
+
 ## 统一 nnunetv1 环境(华为)
 
 所有 v1 预处理 / 训练统一用 `swine_ct_autonomous_discovery` 那套**已验证**的 nnunetv1 环境。
@@ -283,9 +302,9 @@ Date: 2026-06-21
 - **我的建议**:(a)。
 - **决策**:**vendoring 非 MONAI 架构进框架** `framework/nets/<name>/`(复制 + import 改本地,不 pip install 它们的包):
   - MedNeXt:3 个架构文件(mednextv1/ 的 create_mednext_v1 + MedNextV1 + blocks,torch only)
-  - nnFormer:模型类 + 3 个内部小依赖(nd_softmax / initialization / neural_network)+ `pip install timm`
   - SegFormer3D-aniso:1 文件(已修)
-  - MONAI 系(SwinUNETR/UNETR/SegResNet):`pip install monai`(不碰 nnunet,无冲突)
+  - MONAI 系(SwinUNETR):`pip install monai`(不碰 nnunet,无冲突)
+  - **nnFormer 已砍(不再需要 vendoring,省掉 fork 冲突 + timm 依赖)**
   - 彻底消除 nnunet 命名空间歧义 + nnunet 版本被动风险。vendored 代码进 git 可追溯。`source/` 已有完整源码挑文件。
 
 ### Q21. 预测/推理路径(非 nnU-Net 网络)✅
@@ -326,7 +345,7 @@ Date: 2026-06-21
   fold_seed=base_seed)。每个网络跑 **3 次**(3 个 seed),test 上评 final checkpoint,**报告 mean±std 跨 3 次**。
   **worker seed 确定性派生**自 base_seed(`install_v1_determinism_patches`:train workers=`[base+1000+i]`、
   val=`[base+2000+i]`,每 worker 内 random/numpy/torch 全 seed,记 seed_policy JSON)。给定 base_seed 全随机性确定 → state_dict_equal。
-  **代价:计算量 3×(共 24 个训练 job:7 网络×3 + 2D nnUNet×3)**;unpacked npy 只生成一次(3 seed 共用)。
+  **代价:计算量 3×(共 15 个训练 job:4 网络×3 + 2D nnUNet×3)**;unpacked npy 只生成一次(3 seed 共用)。
 
 ### Q25. fp16 unpack 的 dtype 口径(澄清 Q9)✅
 
@@ -377,7 +396,7 @@ Date: 2026-06-21
 - **选项**:(a) 按功能分层(framework/configs/evaluation/jobs 子目录);(b) 扁平化 code/;(c) 其它
 - **我的建议**:(a)。
 - **决策**:**按功能分层**:
-  - `framework/` —— 实现核心:`base_trainer.py`(网络无关 nnUNetTrainerV2 子类 + v1 数据管线 + 确定性 + grad accum + 2 forward 协议)、`registry.py`(name→build_fn+forward协议+家族+optimizer/loss)、`train.py`(config 驱动入口)、`predict.py`(统一 sliding-window,Q21)、`nets/`(插件 + vendored 架构:MONAI 系 `xxx.py` import monai;MedNeXt/nnFormer/SegFormer3D-aniso `xxx/` vendored 目录,Q20)
+  - `framework/` —— 实现核心:`base_trainer.py`(网络无关 nnUNetTrainerV2 子类 + v1 数据管线 + 确定性 + grad accum + 2 forward 协议)、`registry.py`(name→build_fn+forward协议+家族+optimizer/loss)、`train.py`(config 驱动入口)、`predict.py`(统一 sliding-window,Q21)、`nets/`(插件 + vendored 架构:SwinUNETR `xxx.py` import monai;MedNeXt/SegFormer3D-aniso `xxx/` vendored 目录,Q20)
   - `configs/` —— 每 network 一个 yaml(arch 参数 + family + 超参;**seed 由 job 传入**,3 seed 复用一 config)
   - `evaluation/` —— `run_eval.py`(locked evaluator)+ `run_stats.py`(Wilcoxon+Holm,Q26)
   - `jobs/{train,predict,eval}/` —— 每 network×seed 的 DSUB 脚本
