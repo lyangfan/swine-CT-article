@@ -81,6 +81,15 @@ Date: 2026-06-21
 - MedNeXt-S 算 **CNN 家族**(ConvNeXt 系,但按 Q4 规则归 CNN → SGD+poly,不是 AdamW)
 - 不自定义,全部用 nnU-Net v1 原生默认值
 
+### Transformer 家族 optimizer/training 超参（SwinUNETR + SegFormer3D-aniso 统一）
+- **AdamW + warmup_cosine**,跟 PACA swinunetr_scratch.yaml 一致:
+  - lr = **4e-4**（Q18 已定,PACA 在猪 CT 上筛过）
+  - warmup_ratio = **0.05**
+  - min_lr_ratio = **0.01**
+  - min_lr_floor = **1e-6**
+  - weight_decay = **1e-5**（Q18 已定）
+- lr 差异（SGD 0.01 vs AdamW 4e-4）是不同优化器的自然尺度,非不公平（SGD momentum 放大有效步长;AdamW 梯度归一化使 raw lr ≈ 有效步长）。每架构用其原版 optimizer+lr。
+
 ## 统一 nnunetv1 环境(华为)
 
 所有 v1 预处理 / 训练统一用 `swine_ct_autonomous_discovery` 那套**已验证**的 nnunetv1 环境。
