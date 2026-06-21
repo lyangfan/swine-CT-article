@@ -1,6 +1,6 @@
 # Spec Draft — v1 输入一致性(多网络,网络不写死)
 
-Status: DECIDED — 11/11 题已决策
+Status: FULLY DECIDED — 19/19 题已决策(Q1-Q19)
 Date: 2026-06-21
 
 ## 目标
@@ -209,49 +209,54 @@ Date: 2026-06-21
   已修(`source/SegFormer3D/architectures/segformer3d_aniso.py`):去 jit、cube_root reshape 改显式 (D,H,W) 穿线,
   attention/MLP/decoder 不变 —— 属 I/O reshape 修复非架构改动,scratch 下无权重兼容问题,实测通过。
 
-### Q15. 损失函数一致性
+### Q15. 损失函数一致性 ✅
 
-- **背景**:PACA 锁定 supervised loss = CE + Dice(所有 SwinUNETR 系)。nnU-Net v1 用
-  `DC_and_CE_loss`。loss 是训练目标,不一致会引入额外变量。
-- **选项**:(a) 所有网络统一 `DC_and_CE_loss`(DS 网络走 MultipleOutputLoss2 加权、单输出网络
-  直接算,但底层 loss 函数相同);(b) 允许每网络用自己原版 loss
-- **我的建议**:
-- **决策**:
+- **背景**:loss 是训练目标,不一致引入额外变量。PACA 锁 CE+Dice。
+- **选项**:(a) 所有网络统一 `DC_and_CE_loss`;(b) 各用原版 loss
+- **我的建议**:(a)。
+- **决策**:**所有网络统一 nnU-Net v1 的 `DC_and_CE_loss`(SoftDice batch_dice + 加权 CE)。DS 网络
+  (nnU-Net/MedNeXt/nnFormer/SegFormer3D-aniso)走 `MultipleOutputLoss2` 多尺度加权,单输出网络
+  (SwinUNETR/UNETR/SegResNet)直接算,底层同一函数同一参数。**调研确认**:7 个网络全部原生用
+  Dice+CE(nnU-Net/MedNeXt/nnFormer 是 DC_and_CE,SwinUNETR/UNETR/SegResNet/SegFormer3D 是 MONAI
+  DiceCELoss),统一到 DC_and_CE 不改变任何网络的训练目标本质,无网络吃亏。
 
-### Q16. 模型选择指标(val)
+### Q16. 模型选择指标(val)✅
 
-- **背景**:从 val 集选最佳 checkpoint 的 metric 必须预定义,禁 post-hoc 选有利指标(PACA 用
-  common-class Dice,排除条件类 head/testis 避免被 HZAU/TB 不对称带偏)。
-- **选项**:(a) 预定义 val common-class Dice(front/middle/end/kidney×2/cavity×2 这 7 个
-  始终存在的类的 Dice 均值,排除条件类 head/testis);(b) 全类 Dice;(c) 别的
-- **我的建议**:
-- **决策**:
+- **背景**:选 checkpoint 的 val metric 要预定义,禁 post-hoc。条件类 head/testis 在 val 上受 HZAU/TB 比例影响。
+- **选项**:(a) common-class Dice 选 best;(b) 全类 Dice;(c) 用 final checkpoint 不选
+- **我的建议**:(a) common-class。
+- **决策**:**所有网络统一用 final checkpoint(第 500 epoch,LR 衰减到底的模型),不按 val 选 best —— 跟
+  nnU-Net v1 默认一致。** 彻底消除"选 checkpoint 指标"这个变量(无网络能 cherry-pick 最佳 val epoch)。
+  val 集降级为**监控**(看 loss/Dice 曲线确认收敛,不做选择)。test 最终评估(Q11 locked evaluator)
+  跑在 final-checkpoint 的预测上。原 common-class Dice 讨论作废。
 
-### Q17. effective batch / gradient accumulation
+### Q17. effective batch / gradient accumulation ✅
 
-- **背景**:有些网络显存吃紧,physical batch 可能 <2。要保证 effective batch 一致(公平预算)。
-- **选项**:(a) target effective_batch_size = v1 plans batch(通常 2 patches),physical 不够时用
-  gradient accumulation 补到 effective=2;(b) 各网络 physical batch 不同就不同
-- **我的建议**:
-- **决策**:
+- **背景**:transformer 系 patch [64,160,160]+batch2 可能 OOM。公平要求 effective batch 一致(Q6 batch=2)。
+- **选项**:(a) effective=2 + grad accum 兜底;(b) physical 各异
+- **我的建议**:(a)。
+- **决策**:**effective_batch_size = 2 patches**(v1 plans 派生,Q6)。physical 不够时用 gradient accumulation
+  补到 effective=2(`physical × accum = 2`)。base trainer 支持 grad accum。**已知语义 caveat**:grad accum 的
+  batch_dice loss 不完全等价 physical batch 2(两个 micro-batch 各算 Dice 再平均 vs 真 batch 跨 2 样本统计),
+  可接受的微小偏差,config + 文章记录。
 
-### Q18. weight decay / scheduler 细节
+### Q18. weight decay / scheduler 细节 ✅
 
-- **背景**:Q4 定了 optimizer 按 family(CNN→SGD+poly,Transformer→AdamW)。scheduler 跟着 family
-  (SGD→poly lr,AdamW→warmup_cosine),weight decay 要不要也锁定?
-- **选项**:(a) scheduler 跟 family(Q4 已隐含),weight decay 按 family 固定小值(CNN 用 v1 默认,
-  Transformer 如 1e-5),config 记录;(b) 允许搜 weight decay
-- **我的建议**:
-- **决策**:
+- **背景**:Q4 定 optimizer 按家族。scheduler 跟家族(poly 配 SGD、warmup_cosine 配 AdamW)。wd 要否锁?
+- **选项**:(a) scheduler 跟家族 + wd 固定小值不搜;(b) 搜 wd
+- **我的建议**:(a)。
+- **决策**:**scheduler 跟家族,CNN→SGD+poly,Transformer→AdamW+warmup_cosine。weight decay 按家族固定小值不搜**:
+  CNN 系 nnU-Net v1 默认 SGD wd(3e-4),Transformer 系 AdamW wd 1e-5 + lr 4e-4(与 PACA v2 一致)。
+  optimizer/scheduler/wd/lr 全部写死 config,resolved_config 记录,**零调参变量**。
 
-### Q19. 2D nnUNet 的处理(阵容扩展引入)
+### Q19. 2D nnUNet 的处理(阵容扩展引入)✅
 
-- **背景**:你想加 2D nnUNet。但它是 2D 模型,进不了我们 3D v1 预处理空间(3D 体素重采样/crop
-  对 2D 切片模型不适用)。把它硬塞进 3D 框架不公平,也不自然。
-- **选项**:(a) 2D nnUNet 作为**单独类别的参考基线**,走它自己的 nnU-Net 2D 预处理,单独报告,
-  不进 3D 主对比表;(b) 剔除 2D nnUNet,只做 3D 架构对比;(c) 硬塞(不推荐)
-- **我的建议**:
-- **决策**:
+- **背景**:2D nnUNet 是 2D 模型,进不了 3D v1 预处理空间。3D 主对比已干净(7 网络)。
+- **选项**:(a) 单独类别参考;(b) 剔除;(c) 硬塞
+- **我的建议**:(a) 单独类别参考。
+- **决策**:**2D nnUNet 作为单独类别参考基线**:走 nnU-Net v1 自己的 2D pipeline(`nnUNet_train 2d`,
+  独立 2D plans 预处理,与 3D Task601 隔离),单独训练 + 评估 + 报告,**不进 3D 主对比表**。
+  文章:3D 主对比表(7 网络统一 `[64,160,160]`)+ 补充"2D nnUNet 参考"小节(不同维度)。
 
 ## 决策汇总(讨论后回填)
 
@@ -271,11 +276,11 @@ Date: 2026-06-21
 | Q12 数据增广一致性 | ✅ 所有网络锁死共用 nnU-Net v1 moreDA(全套,无额外/无类别专项) |
 | Q13 前景过采样规则 | ✅ 共用 v1 dataloader(force-fg 0.33,无类别专项) |
 | Q14 patch 整除约束 | ✅ 实测 v1 patch=[64,160,160] batch2,天然 32 整除,无需调整 |
-| Q15 损失函数一致性 | |
-| Q16 模型选择指标 | |
-| Q17 effective batch | |
-| Q18 weight decay/scheduler | |
-| Q19 2D nnUNet 处理 | |
+| Q15 损失函数一致性 | ✅ 所有网络统一 nnU-Net v1 DC_and_CE_loss(DS 套 MultipleOutputLoss2) |
+| Q16 模型选择指标 | ✅ 用 final checkpoint(第500ep),不选 best,val 仅监控(跟 nnU-Net 一致) |
+| Q17 effective batch | ✅ effective=2,grad accum 兜底(语义 caveat 记录) |
+| Q18 weight decay/scheduler | ✅ scheduler 跟家族,wd 固定小值不搜(CNN 3e-4/T 1e-5,lr 写死) |
+| Q19 2D nnUNet 处理 | ✅ 单独类别参考基线,走 nnU-Net 2D pipeline,不进 3D 主对比表 |
 
 ---
 
