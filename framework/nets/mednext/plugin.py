@@ -56,3 +56,35 @@ register(NetworkSpec(
     ds_scales_override=_MEDNEXT_DS_SCALES,
     architecture="MedNeXt-S (n_channels=32, k=3, exp_r=4, 4 downsample stages, DS=5)",
 ))
+
+
+def build_l(trainer):
+    """MedNeXt-L — verbatim upstream create_mednextv1_large config."""
+    return MedNeXt(
+        in_channels=trainer.num_input_channels,
+        n_channels=32,
+        n_classes=trainer.num_classes,
+        exp_r=[3, 4, 8, 8, 8, 8, 8, 4, 3],
+        kernel_size=3,
+        deep_supervision=True,
+        do_res=True,
+        do_res_up_down=True,
+        block_counts=[3, 4, 8, 8, 8, 8, 8, 4, 3],
+        norm_type="group",
+        dim="3d",
+        checkpoint_style="outside_block",
+    )
+
+
+register(NetworkSpec(
+    name="mednext_l",
+    build_fn=build_l,
+    forward_protocol="deep_supervision",
+    family="cnn",
+    conv_op=nn.Conv3d,
+    num_classes=10,
+    needs_wrap=True,
+    input_shape_must_be_divisible_by=(16, 16, 16),
+    ds_scales_override=_MEDNEXT_DS_SCALES,
+    architecture="MedNeXt-L (n_channels=32, k=3, exp_r=[3,4,8,8,8,8,8,4,3], 45 blocks, checkpoint=outside_block, DS=5)",
+))
