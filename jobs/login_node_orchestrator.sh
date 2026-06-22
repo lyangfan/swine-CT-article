@@ -36,18 +36,29 @@ for tick in $(seq 1 ${MAX_TICKS}); do
       [ -f "${ckpt}" ] || { echo "[wait] ${net} seed=${seed}"; continue; }
       n=$(ls "${pred_dir}"/*.nii.gz 2>/dev/null | wc -l)
       if [ "${n}" -ge ${N_TEST} ]; then
-        n_pred_done=$((n_pred_done+1)); continue
+        n_pred_done=$((n_pred_done+1))
+        rm -f "${ARTICLE}/jobs/_predict_running/${net}__seed${seed}" 2>/dev/null
+        continue
       fi
-      # trained but not fully predicted → submit predict (idempotent: re-running
-      # just overwrites identical output). Check no predict job already RUNNING
-      # for this net/seed to avoid pile-up (best-effort via job name match).
-      running=$(bash -lc "djob -D 2>/dev/null | grep \"predict_${net}_seed${seed}\" | grep RUNNING | wc -l")
-      if [ "${running}" -eq 0 ]; then
-        jid=$(bash -lc "dsub -s jobs/predict/run_predict_${net}_seed${seed}.sh 2>/dev/null" | awk '{if($1 ~ /^[0-9]+$/) print $1; else if(/submit job successfully/) print "OK"}')
-        echo "[submit predict] ${net} seed=${seed} -> ${jid}"
-      else
-        echo "[running] ${net} seed=${seed} predict already in progress (${n}/${N_TEST})"
+      # trained but not fully predicted → submit predict UNLESS one is already
+      # running for this (net, seed). Dedup via a marker file (djob -D truncates
+      # job names, so name-matching dedup is unreliable). Stale markers (predict
+      # died) are cleared after 120 min.
+      mkdir -p "${ARTICLE}/jobs/_predict_running"
+      marker="${ARTICLE}/jobs/_predict_running/${net}__seed${seed}"
+      if [ -f "${marker}" ]; then
+        age=$(($(date +%s) - $(stat -c %Y "${marker}" 2>/dev/null || echo 0)))
+        if [ "${age}" -gt 7200 ]; then
+          echo "[stale] ${net} seed=${seed} marker age ${age}s > 7200 — clearing"
+          rm -f "${marker}"
+        else
+          echo "[running] ${net} seed=${seed} predict in progress (${n}/${N_TEST}, age ${age}s)"
+          continue
+        fi
       fi
+      touch "${ARTICLE}/jobs/_predict_running/${net}__seed${seed}"
+      jid=$(bash -lc "dsub -s jobs/predict/run_predict_${net}_seed${seed}.sh 2>/dev/null" | awk '{if($1 ~ /^[0-9]+$/) print $1}')
+      echo "[submit predict] ${net} seed=${seed} -> ${jid} (marker set)"
     done
   done
   echo "[summary] predictions done: ${n_pred_done}/${n_total}"
