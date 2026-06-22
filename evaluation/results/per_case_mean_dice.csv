@@ -1,0 +1,6 @@
+network,mean_case_dice,std_case_dice,n_cases
+mednext_s,0.928817,0.027157,39
+nnunet_2d,0.966967,0.040093,39
+nnunet_v1,0.960433,0.024581,39
+segformer3d,0.951314,0.017875,39
+swinunetr,0.964176,0.018471,39
