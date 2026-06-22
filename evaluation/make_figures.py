@@ -262,6 +262,83 @@ ax.set_title("Dice P10 (10th percentile — worst-case tail, higher = better)")
 plt.colorbar(im, ax=ax, label="Dice P10")
 fig.savefig(FIG/"fig10_dice_p10_heatmap.png"); plt.close()
 
+# ============ Fig 11: Kidney left/right confusion ============
+ks_path = RES / "kidney_swap.csv"
+if ks_path.exists():
+    ks_rows = list(csv.DictReader(open(ks_path)))
+    # aggregate per network: mean swap_rate, mean lp_dice_gap, swap case incidence
+    ks_summary = {}
+    for n in NETS:
+        sub = [r for r in ks_rows if r["network"] == n]
+        if not sub:
+            continue
+        # per-case (3-seed avg) then network-level
+        case_swap = {}
+        case_gap = {}
+        for r in sub:
+            case_swap.setdefault(r["case_id"], []).append(f(r["swap_rate"]))
+            case_gap.setdefault(r["case_id"], []).append(f(r["lp_dice_gap"]))
+        swap_vals = [np.mean(v) for v in case_swap.values()]
+        gap_vals = [np.mean(v) for v in case_gap.values()]
+        swap_incidence = np.mean([1 if np.mean(v) > 0 else 0 for v in case_swap.values()])
+        ks_summary[n] = {
+            "swap_rate": np.mean(swap_vals),
+            "swap_rate_std": np.std(swap_vals),
+            "lp_gap": np.mean(gap_vals),
+            "lp_gap_std": np.std(gap_vals),
+            "incidence": swap_incidence,
+        }
+
+    if ks_summary:
+        nets_ks = [n for n in NETS if n in ks_summary]
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5.5))
+
+        # panel 1: swap rate
+        ax = axes[0]
+        x = range(len(nets_ks))
+        bars = ax.bar(x, [ks_summary[n]["swap_rate"] for n in nets_ks],
+                      yerr=[ks_summary[n]["swap_rate_std"] for n in nets_ks], capsize=4,
+                      color=[COLORS[n] for n in nets_ks], edgecolor="black", linewidth=0.5, width=0.6)
+        ax.set_xticks(x); ax.set_xticklabels([LABELS[n] for n in nets_ks], rotation=20, fontsize=9)
+        for lbl in ax.get_xticklabels(): lbl.set_ha("right")
+        ax.set_ylabel("Swap rate (fraction of kidney voxels)")
+        ax.set_title("Kidney swap rate\n(lower = less L/R confusion)", fontsize=11)
+        for bar, n in zip(bars, nets_ks):
+            ax.text(bar.get_x()+bar.get_width()/2, ks_summary[n]["swap_rate"]+0.002,
+                    f"{ks_summary[n]['swap_rate']:.3f}", ha="center", va="bottom", fontsize=9)
+        ax.grid(axis="y", alpha=0.3)
+
+        # panel 2: LP-Dice gap
+        ax = axes[1]
+        bars = ax.bar(x, [ks_summary[n]["lp_gap"] for n in nets_ks],
+                      yerr=[ks_summary[n]["lp_gap_std"] for n in nets_ks], capsize=4,
+                      color=[COLORS[n] for n in nets_ks], edgecolor="black", linewidth=0.5, width=0.6)
+        ax.set_xticks(x); ax.set_xticklabels([LABELS[n] for n in nets_ks], rotation=20, fontsize=9)
+        for lbl in ax.get_xticklabels(): lbl.set_ha("right")
+        ax.set_ylabel("merged_Dice - split_Dice")
+        ax.set_title("Laterality-preserving Dice gap\n(higher = more Dice lost from L/R confusion)", fontsize=11)
+        for bar, n in zip(bars, nets_ks):
+            ax.text(bar.get_x()+bar.get_width()/2, ks_summary[n]["lp_gap"]+0.002,
+                    f"{ks_summary[n]['lp_gap']:.3f}", ha="center", va="bottom", fontsize=9)
+        ax.grid(axis="y", alpha=0.3)
+
+        # panel 3: confusion case incidence
+        ax = axes[2]
+        bars = ax.bar(x, [ks_summary[n]["incidence"]*100 for n in nets_ks],
+                      color=[COLORS[n] for n in nets_ks], edgecolor="black", linewidth=0.5, width=0.6)
+        ax.set_xticks(x); ax.set_xticklabels([LABELS[n] for n in nets_ks], rotation=20, fontsize=9)
+        for lbl in ax.get_xticklabels(): lbl.set_ha("right")
+        ax.set_ylabel("Cases with any swap (%)")
+        ax.set_title("Confusion incidence\n(% of 39 cases with ≥1 swapped voxel)", fontsize=11)
+        for bar, n in zip(bars, nets_ks):
+            ax.text(bar.get_x()+bar.get_width()/2, ks_summary[n]["incidence"]*100+1,
+                    f"{ks_summary[n]['incidence']*100:.0f}%", ha="center", va="bottom", fontsize=9)
+        ax.set_ylim(0, 105)
+        ax.grid(axis="y", alpha=0.3)
+
+        fig.suptitle("Kidney left/right confusion (class 4 ↔ 5) — 3 metrics", fontsize=13)
+        fig.savefig(FIG/"fig11_kidney_swap.png"); plt.close()
+
 print(f"\nFigures generated ({len(list(FIG.glob('*.png')))} total):")
 for p in sorted(FIG.glob("*.png")):
     print(f"  {p.name} ({p.stat().st_size//1024} KB)")

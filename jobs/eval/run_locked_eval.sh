@@ -63,8 +63,15 @@ for net in ${NETWORKS}; do
         --hd95-workers ${HD95_WORKERS} \
         --schedule size-desc \
         --force
+
+    echo "=== kidney swap eval: ${net} seed=${seed} ==="
+    "${NNUNETV1_PYTHON}" -m evaluation.kidney_swap_eval \
+        --predictions "${PRED}" \
+        --gt-folder "${ARTICLE}/data/nnunetv1/nnUNet_raw_data/Task601_Article622_Carcass9Class/labelsTs" \
+        --network "${net}" --seed "${seed}" \
+        --output-csv "${RESULTS}/kidney_swap.csv" \
+        --num-workers ${NUM_WORKERS}
   done
 done
 
-echo "=== ALL LOCKED EVAL DONE ==="
-echo "Results: ${RESULTS}/<network>__seed<seed>/{case_metrics.csv, class_summary.csv, ...}"
+echo "=== ALL EVAL DONE (locked evaluator + kidney swap) ==="
