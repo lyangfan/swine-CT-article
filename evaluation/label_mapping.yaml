@@ -1,0 +1,24 @@
+labels:
+  background: 0
+  front: 1
+  middle: 2
+  end: 3
+  left_kidney: 4
+  right_kidney: 5
+  testis: 6
+  thoracic_cavity: 7
+  abdominal_and_pelvic_cavity: 8
+  head: 9
+
+common_classes:
+  - front
+  - middle
+  - end
+  - thoracic_cavity
+  - abdominal_and_pelvic_cavity
+  - left_kidney
+  - right_kidney
+
+conditional_classes:
+  head: 9
+  testis: 6
