@@ -1,0 +1,11 @@
+network,class_label,class_name,absent_on,mean_fp_voxels,mean_fp_rate,fp_incidence,n_absent_cases
+mednext_s,6,testis,HZAU absent,61.8,0.000004,0.1754,19
+mednext_s,9,head,TB absent,51750.9,0.002448,0.9500,20
+nnunet_2d,6,testis,HZAU absent,0.0,0.000000,0.0000,19
+nnunet_2d,9,head,TB absent,0.0,0.000000,0.0000,20
+nnunet_v1,6,testis,HZAU absent,0.6,0.000000,0.0351,19
+nnunet_v1,9,head,TB absent,29647.0,0.001364,0.9500,20
+segformer3d,6,testis,HZAU absent,0.1,0.000000,0.0175,19
+segformer3d,9,head,TB absent,11842.5,0.000586,0.8667,20
+swinunetr,6,testis,HZAU absent,12.2,0.000001,0.1228,19
+swinunetr,9,head,TB absent,17886.8,0.000858,0.9833,20
