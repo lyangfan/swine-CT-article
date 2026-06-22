@@ -17,7 +17,7 @@ export nnUNet_preprocessed=/home/share/hzau/home/liuyangfan/swine-CT-article/dat
 export RESULTS_FOLDER=/home/share/hzau/home/liuyangfan/swine-CT-article/data/nnunetv1/nnUNet_results
 source /home/share/hzau/home/liuyangfan/swine_ct_autonomous_discovery/runs/swct06042040_codex_hv1_kidney_phase2_v3/task/tools/adopted/setup_nnunetv1_env.sh
 module load libs/openblas/0.3.18_kgcc9.3.1
-export OMP_NUM_THREADS=16 OPENBLAS_NUM_THREADS=16 MKL_NUM_THREADS=16 NUMEXPR_NUM_THREADS=16
+export OMP_NUM_THREADS=2 OPENBLAS_NUM_THREADS=2 MKL_NUM_THREADS=2 NUMEXPR_NUM_THREADS=2
 
 ARTICLE=/home/share/hzau/home/liuyangfan/swine-CT-article
 PRED_ROOT=${ARTICLE}/data/nnunetv1/v1_comparison_predictions
@@ -26,7 +26,13 @@ META=${ARTICLE}/data/manifests/case_metadata.csv
 RESULTS=${ARTICLE}/evaluation/results
 PER_CASE=${RESULTS}/per_case.csv
 mkdir -p "${RESULTS}"
-rm -f "${PER_CASE}"   # fresh; this job is the single producer
+
+# Non-blocking flock: if another eval job is already running, exit immediately
+# (it will produce the output). This prevents the duplicate-eval race that
+# previously had two jobs clobber each other's per_case.csv.
+exec 9>"${RESULTS}/.eval.flock"
+flock -n 9 || { echo "[eval] another eval_and_stats is already running — exiting to avoid a race"; exit 0; }
+rm -f "${PER_CASE}"   # safe now: we hold the exclusive lock
 
 cd "${ARTICLE}"
 NETWORKS="nnunet_v1 swinunetr mednext_s segformer3d nnunet_2d"
@@ -48,7 +54,7 @@ for net in ${NETWORKS}; do
         --gt-folder "${GT_FOLDER}" \
         --case-metadata "${META}" \
         --network "${net}" --seed "${seed}" \
-        --output-csv "${PER_CASE}"
+        --output-csv "${PER_CASE}" --num-workers 8
   done
 done
 
