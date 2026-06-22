@@ -40,6 +40,8 @@ def main() -> int:
     parser.add_argument("--output-folder", required=True)
     parser.add_argument("--task-id", type=int, default=601)
     parser.add_argument("--fold", type=int, default=0)
+    parser.add_argument("--network-dim", default="3d_fullres", choices=["3d_fullres", "2d"],
+                        help="3d_fullres (default) or 2d — picks the plan stage / Generic_UNet conv_op")
     parser.add_argument("--plans-identifier", default="nnUNetPlansv2.1")
     parser.add_argument("--step-size", type=float, default=0.5, help="sliding-window overlap (0.5 = 50%)")
     parser.add_argument("--num-threads-preprocessing", type=int, default=2)
@@ -63,7 +65,7 @@ def main() -> int:
 
     task_name = convert_id_to_task_name(args.task_id)
     plans_file, _, dataset_directory, batch_dice, stage, _ = get_default_configuration(
-        "3d_fullres", task_name, "nnUNetTrainerV2", args.plans_identifier
+        args.network_dim, task_name, "nnUNetTrainerV2", args.plans_identifier
     )
     spec = get_network_spec(args.network)
 

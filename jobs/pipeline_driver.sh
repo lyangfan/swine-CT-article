@@ -29,11 +29,12 @@ submit_predict() {
   local net=$1 seed=$2 script
   script=${ARTICLE}/jobs/predict/run_predict_${net}_seed${seed}.sh
   if [ ! -x "${script}" ]; then echo "[skip] ${net} seed=${seed}: script missing/not executable" >> "${LOG}"; return; fi
-  local jid
-  jid=$(bash -lc "cd ${ARTICLE} && dsub -s jobs/predict/run_predict_${net}_seed${seed}.sh" 2>/dev/null | awk '/submit job successfully/{getline; print $1}')
-  # dsub prints JOBID on the line before "submit job successfully" in some versions; capture robustly
-  jid=$(bash -lc "cd ${ARTICLE} && dsub -s jobs/predict/run_predict_${net}_seed${seed}.sh" 2>/dev/null | awk '{if($1 ~ /^[0-9]+$/) jid=$1} END{print jid}')
-  echo "[submit predict] ${net} seed=${seed} -> ${jid}" >> "${LOG}"
+  # NOTE: nested DSUB (dsub from inside a DSUB compute-node job) does NOT work on
+  # this cluster. We only LOG the needed action here; a login-node process (or the
+  # operator's session) reads these [need-submit] lines and submits from the
+  # login node where dsub is available.
+  touch "${ARTICLE}/jobs/_needs_submit/${net}__seed${seed}"
+  echo "[need-submit] ${net} seed=${seed} (marker written; submit from login node)" >> "${LOG}"
 }
 
 n_pred_done=0
