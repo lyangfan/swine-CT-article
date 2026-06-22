@@ -107,7 +107,9 @@ for idx, (c, title) in enumerate([(4,"left_kidney"),(5,"right_kidney")]):
         patch.set_facecolor(COLORS[n]); patch.set_alpha(0.7)
     ax.set_title(f"{title} — Dice distribution (n=117)", fontsize=12)
     ax.set_ylabel("Dice", fontsize=11); ax.set_ylim(0, 1.02)
-    ax.tick_params(axis="x", labelsize=9)
+    ax.tick_params(axis="x", labelsize=9, rotation=20)
+    for lbl in ax.get_xticklabels():
+        lbl.set_ha("right")
     ax.grid(axis="y", alpha=0.3)
     # annotate P10
     for i, d in enumerate(data):
