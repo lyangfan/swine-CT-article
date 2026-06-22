@@ -328,18 +328,21 @@ if ks_path.exists():
                     f"{ks_summary[n]['lp_gap']:.3f}", ha="center", va="bottom", fontsize=9)
         ax.grid(axis="y", alpha=0.3)
 
-        # panel 3: confusion case incidence
+        # panel 3: confusion case incidence (per-seed mean ± std)
         ax = axes[2]
         bars = ax.bar(x, [ks_summary[n]["incidence"]*100 for n in nets_ks],
+                      yerr=[ks_summary[n].get("incidence_std", 0)*100 for n in nets_ks], capsize=4,
                       color=[COLORS[n] for n in nets_ks], edgecolor="black", linewidth=0.5, width=0.6)
         ax.set_xticks(x); ax.set_xticklabels([LABELS[n] for n in nets_ks], rotation=20, fontsize=9)
         for lbl in ax.get_xticklabels(): lbl.set_ha("right")
-        ax.set_ylabel("Cases with any swap (%)")
-        ax.set_title("Confusion incidence\n(% of 39 cases with ≥1 swapped voxel)", fontsize=11)
+        ax.set_ylabel("Cases with swap (%)")
+        ax.set_title("Confusion incidence (per-seed mean ± std)\n(each seed: % of 39 cases with ≥1 swapped voxel)", fontsize=10)
         for bar, n in zip(bars, nets_ks):
-            ax.text(bar.get_x()+bar.get_width()/2, ks_summary[n]["incidence"]*100+1,
-                    f"{ks_summary[n]['incidence']*100:.0f}%", ha="center", va="bottom", fontsize=9)
-        ax.set_ylim(0, 105)
+            inc = ks_summary[n]["incidence"]*100
+            inc_std = ks_summary[n].get("incidence_std", 0)*100
+            ax.text(bar.get_x()+bar.get_width()/2, inc+inc_std+1,
+                    f"{inc:.0f}±{inc_std:.0f}%", ha="center", va="bottom", fontsize=9)
+        ax.set_ylim(0, 110)
         ax.grid(axis="y", alpha=0.3)
 
         fig.suptitle("Kidney left/right confusion (class 4 ↔ 5) — 3 metrics", fontsize=13)
