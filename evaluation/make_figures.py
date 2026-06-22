@@ -266,27 +266,33 @@ fig.savefig(FIG/"fig10_dice_p10_heatmap.png"); plt.close()
 ks_path = RES / "kidney_swap.csv"
 if ks_path.exists():
     ks_rows = list(csv.DictReader(open(ks_path)))
-    # aggregate per network: mean swap_rate, mean lp_dice_gap, swap case incidence
+    # aggregate per network: per-seed incidence (mean±std), then swap_rate/lp_gap
     ks_summary = {}
+    SEEDS_KS = sorted(set(int(r["seed"]) for r in ks_rows))
     for n in NETS:
         sub = [r for r in ks_rows if r["network"] == n]
         if not sub:
             continue
-        # per-case (3-seed avg) then network-level
-        case_swap = {}
-        case_gap = {}
+        # per-case (3-seed avg) for swap_rate and lp_dice_gap
+        case_swap, case_gap = {}, {}
         for r in sub:
             case_swap.setdefault(r["case_id"], []).append(f(r["swap_rate"]))
             case_gap.setdefault(r["case_id"], []).append(f(r["lp_dice_gap"]))
         swap_vals = [np.mean(v) for v in case_swap.values()]
         gap_vals = [np.mean(v) for v in case_gap.values()]
-        swap_incidence = np.mean([1 if np.mean(v) > 0 else 0 for v in case_swap.values()])
+        # incidence: per-seed (each seed independently), then mean±std across seeds
+        per_seed_inc = []
+        for seed in SEEDS_KS:
+            seed_cases = [r for r in sub if int(r["seed"]) == seed]
+            if seed_cases:
+                per_seed_inc.append(np.mean([int(r["has_swap"]) for r in seed_cases]))
         ks_summary[n] = {
             "swap_rate": np.mean(swap_vals),
             "swap_rate_std": np.std(swap_vals),
             "lp_gap": np.mean(gap_vals),
             "lp_gap_std": np.std(gap_vals),
-            "incidence": swap_incidence,
+            "incidence": np.mean(per_seed_inc) if per_seed_inc else 0,
+            "incidence_std": np.std(per_seed_inc) if per_seed_inc else 0,
         }
 
     if ks_summary:
