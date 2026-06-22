@@ -7,13 +7,17 @@ registered network + base seed, installs the v1 determinism patches, and runs
 
 Usage (inside the nnunetv1 env, paths already exported):
 
-    python -m framework.train \
-        --network swinunetr --seed 20260520 \
-        --config configs/swinunetr.yaml \
+    # 3D networks
+    python -m framework.train \\
+        --network swinunetr --seed 20260520 \\
+        --config configs/swinunetr.yaml \\
         --output-folder <RESULTS>/swinunetr__seed20260520
 
-This module is 3D-only. The 2D nnUNet reference trains via the existing
-``train_paca_deterministic.py --network 2d`` wrapper (native nnUNetTrainerV2).
+    # 2D nnUNet reference (same entry, --network-dim 2d)
+    python -m framework.train \\
+        --network nnunet_v1 --network-dim 2d --seed 20260520 \\
+        --config configs/nnunet_2d.yaml \\
+        --output-folder <RESULTS>/nnunet_2d__seed20260520
 """
 from __future__ import annotations
 
@@ -42,7 +46,8 @@ def main() -> int:
     parser.add_argument("--config", required=True, help="configs/<network>.yaml (informational; hyper-params are pinned in the trainer)")
     parser.add_argument("--task-id", type=int, default=601)
     parser.add_argument("--fold", type=int, default=0)
-    parser.add_argument("--network-dim", default="3d_fullres", choices=["3d_fullres"])
+    parser.add_argument("--network-dim", default="3d_fullres", choices=["3d_fullres", "2d"],
+                        help="3d_fullres (default) or 2d — picks the plan stage / Generic_UNet conv_op")
     parser.add_argument("--plans-identifier", default="nnUNetPlansv2.1")
     parser.add_argument("--output-folder", required=True)
     parser.add_argument("--grad-accum", type=int, default=1, help="physical-batch multiplier for effective batch 2 (default 1)")

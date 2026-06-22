@@ -198,7 +198,7 @@ Host hzau_gpu
 
 | 环节 | 脚本 | 说明 |
 |---|---|---|
-| 训练 | `framework/train.py` | `--network <net> --seed <seed> --fold 0`;2D 走 `train_paca_deterministic.py --network 2d` |
+| 训练 | `framework/train.py` | `--network <net> --seed <seed> --fold 0`;2D 加 `--network-dim 2d`(统一走 `MultiNetworkTrainer`) |
 | 预测 | `framework/predict.py` | `--network <net> --checkpoint <ckpt> --input-folder imagesTs --output-folder <pred>`;2D 加 `--network-dim 2d` |
 | 评估 | `swine_ct_autonomous_discovery/metrics/evaluate_swine_ct.py` | 项目 locked evaluator,34 列指标一次算齐 |
 | 评估适配 | `evaluation/build_cases_csv.py` | 把 predictions 路径 + GT + source 转成 locked evaluator 的 `--cases-csv` 格式 |
