@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import fcntl
 import sys
 from pathlib import Path
 
@@ -176,28 +175,26 @@ def main() -> int:
 
     out_fields = ["network", "seed", "case_id", "source", "class_label", "class_name", "dice", "hd95"]
     Path(args.output_csv).parent.mkdir(parents=True, exist_ok=True)
-    # flock the CSV so concurrent eval jobs serialise instead of corrupting output
-    lock_path = str(args.output_csv) + ".lock"
+    # NOTE: concurrent-eval protection is the non-blocking flock in the DSUB job
+    # script (jobs/eval/run_eval_and_stats.sh). Do NOT fcntl.flock the CSV here —
+    # it lives on NFS and flock-on-NFS deadlocks on compute nodes.
     n_rows = 0
-    with open(lock_path, "w") as lockf:
-        fcntl.flock(lockf, fcntl.LOCK_EX)
-        write_header = not Path(args.output_csv).exists()
-        with open(args.output_csv, "a", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=out_fields)
-            if write_header:
-                w.writeheader()
-            with Pool(args.num_workers) as pool:
-                for i, rows in enumerate(pool.imap_unordered(_worker, tasks)):
-                    for (net, seed, case_id, source, c, cn, d, h) in rows:
-                        w.writerow({
-                            "network": net, "seed": seed, "case_id": case_id, "source": source,
-                            "class_label": c, "class_name": cn,
-                            "dice": f"{d:.6f}", "hd95": f"{h:.4f}" if not np.isnan(h) else "nan",
-                        })
-                        n_rows += 1
-                    f.flush()  # flush every case so progress is visible
-                    print(f"[eval] {args.network} seed={args.seed}: {i+1}/{len(tasks)} cases done ({n_rows} rows)", flush=True)
-        fcntl.flock(lockf, fcntl.LOCK_UN)
+    write_header = not Path(args.output_csv).exists()
+    with open(args.output_csv, "a", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=out_fields)
+        if write_header:
+            w.writeheader()
+        with Pool(args.num_workers) as pool:
+            for i, rows in enumerate(pool.imap_unordered(_worker, tasks)):
+                for (net, seed, case_id, source, c, cn, d, h) in rows:
+                    w.writerow({
+                        "network": net, "seed": seed, "case_id": case_id, "source": source,
+                        "class_label": c, "class_name": cn,
+                        "dice": f"{d:.6f}", "hd95": f"{h:.4f}" if not np.isnan(h) else "nan",
+                    })
+                    n_rows += 1
+                f.flush()
+                print(f"[eval] {args.network} seed={args.seed}: {i+1}/{len(tasks)} cases done ({n_rows} rows)", flush=True)
     print(f"[eval] wrote {n_rows} rows -> {args.output_csv}", flush=True)
     return 0
 
