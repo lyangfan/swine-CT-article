@@ -1,0 +1,25 @@
+{
+  "num_case_class_rows": 351,
+  "num_cases": 39,
+  "num_methods": 1,
+  "num_cohorts": 1,
+  "outputs": {
+    "case_metrics": "evaluation/results_locked/segformer3d__seed20260521/case_metrics.csv",
+    "class_summary": "evaluation/results_locked/segformer3d__seed20260521/class_summary.csv",
+    "cohort_summary": "evaluation/results_locked/segformer3d__seed20260521/cohort_summary.csv",
+    "fold_summary": "evaluation/results_locked/segformer3d__seed20260521/fold_summary.csv",
+    "summary_json": "evaluation/results_locked/segformer3d__seed20260521/summary.json"
+  },
+  "num_workers": 12,
+  "hd95_workers": "4",
+  "resolved_hd95_workers": 4,
+  "schedule": "size-desc",
+  "resume": false,
+  "force": true,
+  "case_parts_dir": "evaluation/results_locked/segformer3d__seed20260521/case_parts",
+  "case_runtime_csv": "evaluation/results_locked/segformer3d__seed20260521/case_runtime.csv",
+  "failed_cases_csv": "evaluation/results_locked/segformer3d__seed20260521/failed_cases.csv",
+  "failed_cases_json": "evaluation/results_locked/segformer3d__seed20260521/failed_cases.json",
+  "hd95_definition": "b1_kdtree_surface_hd95",
+  "metric_lock_contract": "swine_ct_metric_lock_v1"
+}
