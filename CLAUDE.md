@@ -194,6 +194,39 @@ Host hzau_gpu
   逐个读 NIfTI)可能几十分钟,可在 prompt 里要求"合并成一次 ssh + 抽样验证"加速。
 - 源参考:AutoScientists `source_code_claude/system/reference/AGENT-SETUP.md`。
 
+## 统一训练 / 预测入口
+
+所有网络(5 个)共用同一套入口,只通过 `--network` / `--network-dim` 区分:
+
+### 训练:`framework/train.py`
+
+```bash
+python -m framework.train --network <net> --seed <seed> \
+    --config configs/<net>.yaml --task-id 601 --fold 0 \
+    --output-folder <out>
+```
+
+3D 网络(nnunet_v1 / swinunetr / segformer3d / mednext_s / mednext_l)走 `MultiNetworkTrainer`;
+2D 网络(nnunet_2d)不走 framework,走 `train_paca_deterministic.py --network 2d`(原生
+nnUNetTrainerV2_2D)。
+
+### 预测:`framework/predict.py`(统一入口,5 个网络全走这一个)
+
+```bash
+# 3D 网络
+python -m framework.predict --network <net> --seed <seed> \
+    --checkpoint <ckpt> --input-folder imagesTs --output-folder <pred>
+
+# 2D 网络(多一个 --network-dim)
+python -m framework.predict --network nnunet_v1 --network-dim 2d --seed <seed> \
+    --checkpoint <ckpt> --input-folder imagesTs --output-folder <pred>
+```
+
+全部统一走:`MultiNetworkTrainer.initialize(training=False)` → `load_checkpoint_ram`
+(只加载权重,不需要 `restore_model`)→ sliding window(overlap 0.5, TTA off)→
+argmax → resample 回原 spacing → nii.gz。2D 预测不能用原生 `nnUNet_predict`
+(无法 restore `PACAV1DeterministicTrainer`),必须走 `framework.predict --network-dim 2d`。
+
 ## Evaluation 统一规范(HD95 + Dice)
 
 ### 先用项目已有的 locked evaluator,不要自己写
