@@ -193,3 +193,51 @@ Host hzau_gpu
 - print 模式跑完才一次性输出;长任务会自动转后台,完成时通知。重 I/O 任务(如
   逐个读 NIfTI)可能几十分钟,可在 prompt 里要求"合并成一次 ssh + 抽样验证"加速。
 - 源参考:AutoScientists `source_code_claude/system/reference/AGENT-SETUP.md`。
+
+## Evaluation 统一规范(HD95 + Dice)
+
+### 先用项目已有的 locked evaluator,不要自己写
+
+项目里已有 **locked evaluator**:`swine_ct_autonomous_discovery/metrics/evaluate_swine_ct.py`
+(35KB,带完整的 HD95 + Dice + absent-FP + missed + 百分位统计)。spec 引用它时,
+**必须先读它的实现,再决定是自己写还是直接调用**。本次 v1 comparison 绕过了它自己写 HD95,
+试错 5 轮才对齐 —— 直接读源码可以省掉全部来回。
+
+### HD95 算法(locked evaluator 的标准方法,不要改)
+
+`hd95_mm(gt_mask, pred_mask, spacing)`:
+
+1. **union-bbox 裁剪(margin=2)**:`crop = bbox(GT ∪ Pred) + 2 voxels`。裁剪是无损的
+   (所有表面点都在 union bbox 内),margin=2 防 erosion 边界效应。
+2. **表面提取**:`surface = mask & ~binary_erosion(mask, structure=6-connectivity)`。
+3. **spacing 缩放**:`surface_points *= spacing`(转 mm,各向异性)。
+4. **cKDTree 双向最近邻**:`gt_tree.query(pred_points, k=1)` + `pred_tree.query(gt_points, k=1)`。
+   cKDTree 是精确搜索(不是近似),结果和暴力 O(N²) 逐位相同。
+5. **P95**:concat 双向距离,取 `np.percentile(distances, 95)`。
+
+**不要用 `distance_transform_edt` 替代** —— 虽然数学上等价,但边界 case 浮点差异导致
+和 locked evaluator 不完全对齐,文章里会出分歧。
+
+### Evaluation 的并行与 I/O 规则
+
+- **不要在 run_eval 里用 `fcntl.flock`**。compute node 的共享存储是 NFS,
+  `flock` 在 NFS 上会永久 hang(login node `/tmp` 测试通过,DSUB 上 hang —— 这个坑
+  浪费了大量调试时间)。并发 eval 保护用 **DSUB job 脚本里的 `flock -n`**(job 级互斥)。
+- **每 case flush + print 进度**,不要攒 10 case 才 flush(否则 0 输出看起来像 hang)。
+- **cKDTree 的 `workers` 参数**:在 `multiprocessing.Pool` worker 里调
+  `cKDTree.query(workers=N)` 会触发 scipy 内部 Pool → 嵌套 multiprocessing 死锁。
+  解决:`workers<=1` 时不传 `workers` kwarg(走 scipy 单线程路径),靠 case 级
+  `multiprocessing.Pool` 做并行。
+- **测试必须在 DSUB job 里跑**,不是只在 login node 跑 —— NFS vs 本地文件系统、
+  GPU 显存、CUDA 初始化行为都不同。
+
+### 后续 evaluation 的统一流程
+
+1. **读 locked evaluator** → 确认 HD95 / Dice / absent-FP 的定义。
+2. **从 per-case CSV 算统计**(`evaluation/run_stats.py`):
+   - Per-class:mean / median / std / **P10(Dice)** / **P90(HD95)** / max。
+   - 条件类(head/testis)的 absent-FP:voxels / rate / incidence。
+   - 跨 3 seed 聚合 → Wilcoxon signed-rank(per-case mean Dice,3-seed 先平均)→ Holm-Bonferroni。
+3. **肾脏等小目标**:用 median + P90,不用 mean(mean 被尾部拉飞,median 才是真相)。
+4. **图表**:`evaluation/make_figures.py`(bar / heatmap / box / significance matrix)。
+5. **结果推 GitHub + 嵌入 issue**(raw URL,repo 需 public)。
