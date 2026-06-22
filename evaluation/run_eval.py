@@ -80,10 +80,13 @@ def hd95_mm(gt_mask: np.ndarray, pred_mask: np.ndarray, spacing: tuple,
     pred_pts = np.argwhere(pred_surf).astype(np.float32, copy=False) * spacing_arr
     gt_tree = cKDTree(gt_pts)
     pred_tree = cKDTree(pred_pts)
-    try:
+    # When hd95_workers <= 1, call query WITHOUT the workers kwarg so scipy uses
+    # its plain single-threaded path (passing workers=1 still spins up scipy's
+    # internal Pool, which deadlocks inside our multiprocessing.Pool workers).
+    if hd95_workers and hd95_workers > 1:
         gt_to_pred, _ = pred_tree.query(gt_pts, k=1, workers=hd95_workers)
         pred_to_gt, _ = gt_tree.query(pred_pts, k=1, workers=hd95_workers)
-    except TypeError:  # older scipy without workers kwarg
+    else:
         gt_to_pred, _ = pred_tree.query(gt_pts, k=1)
         pred_to_gt, _ = gt_tree.query(pred_pts, k=1)
     distances = np.concatenate([gt_to_pred, pred_to_gt])
@@ -192,9 +195,8 @@ def main() -> int:
                             "dice": f"{d:.6f}", "hd95": f"{h:.4f}" if not np.isnan(h) else "nan",
                         })
                         n_rows += 1
-                    if (i + 1) % 10 == 0:
-                        f.flush()
-                        print(f"[eval] {args.network} seed={args.seed}: {i+1}/{len(tasks)} cases done", flush=True)
+                    f.flush()  # flush every case so progress is visible
+                    print(f"[eval] {args.network} seed={args.seed}: {i+1}/{len(tasks)} cases done ({n_rows} rows)", flush=True)
         fcntl.flock(lockf, fcntl.LOCK_UN)
     print(f"[eval] wrote {n_rows} rows -> {args.output_csv}", flush=True)
     return 0
