@@ -93,7 +93,12 @@ def _check_orientation(
     """
     violations: List[str] = []
 
-    # --- Rule 1: head centroid x in left half for HZAU cases ---
+    # --- Rule 1: head centroid z in cranial half (z > z_mid) for HZAU ---
+    # The 2D projection collapses axis 2 (x = L-R).  The horizontal axis
+    # of the projection is the volume's z-axis (cranial-caudal).  After
+    # transpose + flip_cranial_to_left, high z (cranial) maps to the left
+    # side of the 2D image.  Therefore head — at the cranial end — must
+    # have z > z_mid (so that it lands on the left).
     for row in audit_rows:
         source = row.get("source", "")
         head_present = row.get("head_present", "0")
@@ -116,17 +121,20 @@ def _check_orientation(
             )
             continue
 
-        size_x = size_xyz[0]  # SimpleITK GetSize returns (x, y, z)
-        centroid_x = head_centroid[2]  # z,y,x ordering
+        # GetSize → (x, y, z);  centroid_zyx → [z, y, x]
+        size_z = size_xyz[2]   # depth = cranial-caudal extent
+        centroid_z = head_centroid[0]  # z in z,y,x
 
-        if centroid_x >= size_x / 2.0:
+        if centroid_z <= size_z / 2.0:
             violations.append(
-                f"RULE1: case_id={row['case_id']} HZAU head centroid x="
-                f"{centroid_x:.1f} NOT in left half (size_x={size_x}, "
-                f"midpoint={size_x / 2.0:.1f}); expected x < {size_x / 2.0:.1f}"
+                f"RULE1: case_id={row['case_id']} HZAU head centroid z="
+                f"{centroid_z:.1f} NOT in cranial half (size_z={size_z}, "
+                f"midpoint={size_z / 2.0:.1f}); expected z > {size_z / 2.0:.1f}"
             )
 
-    # --- Rule 2: testis centroid x in right half for TB cases ---
+    # --- Rule 2: testis centroid z in caudal half (z < z_mid) for TB ---
+    # Complement of Rule 1: testis at the caudal end → low z → right side
+    # after flip.
     for row in audit_rows:
         source = row.get("source", "")
         testis_present = row.get("testis_present", "0")
@@ -149,14 +157,14 @@ def _check_orientation(
             )
             continue
 
-        size_x = size_xyz[0]
-        centroid_x = testis_centroid[2]
+        size_z = size_xyz[2]
+        centroid_z = testis_centroid[0]
 
-        if centroid_x < size_x / 2.0:
+        if centroid_z >= size_z / 2.0:
             violations.append(
-                f"RULE2: case_id={row['case_id']} TB testis centroid x="
-                f"{centroid_x:.1f} NOT in right half (size_x={size_x}, "
-                f"midpoint={size_x / 2.0:.1f}); expected x >= {size_x / 2.0:.1f}"
+                f"RULE2: case_id={row['case_id']} TB testis centroid z="
+                f"{centroid_z:.1f} NOT in caudal half (size_z={size_z}, "
+                f"midpoint={size_z / 2.0:.1f}); expected z < {size_z / 2.0:.1f}"
             )
 
     # --- Rule 3: testis centroid y consistent across TB cases ---
