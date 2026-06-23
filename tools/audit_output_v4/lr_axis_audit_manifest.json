@@ -1,0 +1,101 @@
+{
+  "audit_2d": {
+    "axis0_votes_H": 0,
+    "axis1_votes_W": 581,
+    "confirmed_lr_axis_2d": 1,
+    "in_slice_axes": {
+      "0": "H(AP)",
+      "1": "W(LR)"
+    },
+    "maps_to_3d_axis_name": "W(LR)",
+    "mean_H_sep": 9.191530270275328,
+    "mean_W_sep": 136.29341273837056,
+    "method": "com_separation_2d_preprocessed",
+    "n_cases_scanned": 30,
+    "slice_axis": "D (first spatial dim of preprocessed data)",
+    "total_kidney_slices": 581
+  },
+  "audit_3d_com": {
+    "confirmed_lr_axis": 0,
+    "margin_to_next_axis": 128.78289470394705,
+    "method": "com_separation_3d",
+    "n_kidney_cases": 18,
+    "per_axis_summary": {
+      "axis0": {
+        "mean_com_diff": 135.86909321142144,
+        "median_com_diff": 135.95512913113544,
+        "n_cases": 18
+      },
+      "axis1": {
+        "mean_com_diff": 7.086198507474382,
+        "median_com_diff": 5.701019151893064,
+        "n_cases": 18
+      },
+      "axis2": {
+        "mean_com_diff": 6.360953635784078,
+        "median_com_diff": 5.744478020543006,
+        "n_cases": 18
+      }
+    }
+  },
+  "audit_3d_overlap": {
+    "confirmed_lr_axis": 0,
+    "margin_to_next_axis": 0.21193992672788473,
+    "method": "flip_overlap_3d",
+    "n_kidney_cases": 18,
+    "per_axis_summary": {
+      "axis0": {
+        "mean_overlap_ratio": 0.21193992672788473,
+        "median_overlap_ratio": 0.11929187110470102,
+        "n_cases": 18
+      },
+      "axis1": {
+        "mean_overlap_ratio": 0.0,
+        "median_overlap_ratio": 0.0,
+        "n_cases": 18
+      },
+      "axis2": {
+        "mean_overlap_ratio": 0.0,
+        "median_overlap_ratio": 0.0,
+        "n_cases": 18
+      }
+    }
+  },
+  "case_counts": {
+    "scanned": 30,
+    "total_in_manifest": 197,
+    "with_both_kidneys_100vox": 18
+  },
+  "confirmed_lr_axis_2d": 1,
+  "confirmed_lr_axis_2d_maps_to_3d_axis_name": "W(LR)",
+  "confirmed_lr_axis_3d": 0,
+  "left_kidney_label_id": 4,
+  "nnunet_2d_mirror_axes": [
+    0,
+    1
+  ],
+  "nnunet_3d_mirror_axes": [
+    0,
+    1,
+    2
+  ],
+  "pass_criteria": {
+    "com_margin_sufficient_3d": true,
+    "com_vs_overlap_agree": true,
+    "lr_axis_2d_in_valid_range": true,
+    "lr_axis_3d_found": true,
+    "lr_axis_3d_in_mirror_set": true,
+    "min_kidney_cases_met": true,
+    "overlap_margin_sufficient_3d": true
+  },
+  "right_kidney_label_id": 5,
+  "schema_version": "lr_axis_audit.v3",
+  "task": "Task601_Article622_Carcass9Class",
+  "training_gate": "PASS",
+  "validation_2d": {
+    "axis_value": 1,
+    "in_valid_range": true,
+    "message": "PASS: 2D LR axis=1 \u2208 {0,1}"
+  },
+  "verdict": "PASS"
+}

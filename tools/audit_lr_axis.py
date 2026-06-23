@@ -29,10 +29,63 @@ import numpy as np
 LEFT_KIDNEY = 4
 RIGHT_KIDNEY = 5
 
-# The axial slice axis (cranio-caudal).  For our data shape (512,512,D),
-# axis 2 is the depth/slice axis; axes 0,1 are the in-slice spatial dims.
-SLICE_AXIS_3D = 2
-IN_SLICE_3D_AXES = (0, 1)  # 2d_axis_0→3d_axis_0, 2d_axis_1→3d_axis_1
+
+def audit_2d_on_preprocessed(preprocessed_dir: str, max_cases: int = 50) -> dict:
+    """Run 2D audit directly on nnU-Net preprocessed data.
+
+    This avoids the NIfTI axis ordering ambiguity by operating on the actual
+    data that DataLoader2D sees.  The preprocessed data has shape (C, D, H, W)
+    where D is the slice axis (first spatial dim).
+
+    For each slice containing both kidneys, check which in-slice axis
+    (H or W) has the larger |CoM_L - CoM_R| separation.
+    """
+    import os
+    npz_files = sorted([f for f in os.listdir(preprocessed_dir)
+                         if f.endswith(".npz")])[:max_cases]
+
+    axis_votes = {0: 0, 1: 0}  # 0=H, 1=W
+    total_slices = 0
+    all_h_sep = []
+    all_w_sep = []
+
+    for fname in npz_files:
+        d = np.load(os.path.join(preprocessed_dir, fname))
+        seg = d["data"][-1]  # last channel = seg, shape (D, H, W)
+        for z in range(seg.shape[0]):
+            sl = seg[z]  # (H, W)
+            nl = int((sl == 4).sum())
+            nr = int((sl == 5).sum())
+            if nl < 10 or nr < 10:
+                continue
+            total_slices += 1
+            left_com = np.argwhere(sl == 4).mean(axis=0)
+            right_com = np.argwhere(sl == 5).mean(axis=0)
+            diff = np.abs(left_com - right_com)
+            all_h_sep.append(float(diff[0]))
+            all_w_sep.append(float(diff[1]))
+            if diff[0] > diff[1]:
+                axis_votes[0] += 1
+            elif diff[1] > diff[0]:
+                axis_votes[1] += 1
+
+    majority = 0 if axis_votes[0] >= axis_votes[1] else 1
+    mean_h = float(np.mean(all_h_sep)) if all_h_sep else 0.0
+    mean_w = float(np.mean(all_w_sep)) if all_w_sep else 0.0
+
+    return {
+        "confirmed_lr_axis_2d": majority,
+        "maps_to_3d_axis_name": "H(AP)" if majority == 0 else "W(LR)",
+        "method": "com_separation_2d_preprocessed",
+        "axis0_votes_H": axis_votes[0],
+        "axis1_votes_W": axis_votes[1],
+        "total_kidney_slices": total_slices,
+        "mean_H_sep": mean_h,
+        "mean_W_sep": mean_w,
+        "n_cases_scanned": len(npz_files),
+        "in_slice_axes": {"0": "H(AP)", "1": "W(LR)"},
+        "slice_axis": "D (first spatial dim of preprocessed data)",
+    }
 
 
 def _find_kidney_cases(labels_dir: Path, case_ids: list[str],
@@ -132,18 +185,24 @@ def audit_3d_overlap(labels_dir: Path, case_ids: list[str]) -> dict:
     }
 
 
-def audit_2d_com(labels_dir: Path, case_ids: list[str]) -> dict:
-    """2D CoM method within axial slices (axis 2).
+def audit_2d_com(labels_dir: Path, case_ids: list[str],
+                 slice_axis_3d: int, in_slice_3d_axes: tuple[int, int]) -> dict:
+    """2D CoM method within slices along the nnU-Net 2D slice axis.
 
-    For each axial slice containing both kidneys, check which in-slice axis
-    (0→3d_axis_0, 1→3d_axis_1) has the larger |CoM_L - CoM_R| separation.
+    For each slice (along the nnU-Net 2D slice axis) containing both kidneys,
+    check which in-slice axis has the larger |CoM_L - CoM_R| separation.
     """
     axis_votes = {0: 0, 1: 0}
     total_slices = 0
     for cid in case_ids:
         seg = np.asarray(nib.load(str(labels_dir / f"{cid}.nii.gz")).dataobj, dtype=np.int16)
-        for z in range(seg.shape[SLICE_AXIS_3D]):
-            sl = seg[:, :, z]
+        for z in range(seg.shape[slice_axis_3d]):
+            if slice_axis_3d == 0:
+                sl = seg[z, :, :]
+            elif slice_axis_3d == 1:
+                sl = seg[:, z, :]
+            else:
+                sl = seg[:, :, z]
             left_mask = sl == LEFT_KIDNEY
             right_mask = sl == RIGHT_KIDNEY
             if left_mask.sum() < 10 or right_mask.sum() < 10:
@@ -164,14 +223,14 @@ def audit_2d_com(labels_dir: Path, case_ids: list[str]) -> dict:
 
     return {
         "confirmed_lr_axis_2d": majority_axis,
-        "maps_to_3d_axis": IN_SLICE_3D_AXES[majority_axis],
+        "maps_to_3d_axis": in_slice_3d_axes[majority_axis],
         "margin_votes": margin,
         "axis0_votes": axis_votes[0],
         "axis1_votes": axis_votes[1],
         "total_kidney_slices": total_slices,
         "n_kidney_cases": len(case_ids),
-        "in_slice_3d_axes": {0: IN_SLICE_3D_AXES[0], 1: IN_SLICE_3D_AXES[1]},
-        "slice_axis_3d": SLICE_AXIS_3D,
+        "in_slice_3d_axes": {0: in_slice_3d_axes[0], 1: in_slice_3d_axes[1]},
+        "slice_axis_3d": slice_axis_3d,
         "method": "com_separation_2d_slice",
     }
 
@@ -192,7 +251,9 @@ def main() -> int:
     ap.add_argument("--labels-dir", required=True)
     ap.add_argument("--split-manifest", required=True)
     ap.add_argument("--output-dir", required=True)
-    ap.add_argument("--max-cases", type=int, default=100)
+    ap.add_argument("--preprocessed-dir", required=True,
+                    help="path to nnUNetData_plans_v2.1_2D_stage0/ (preprocessed 2D data)")
+    ap.add_argument("--max-cases", type=int, default=50)
     args = ap.parse_args()
 
     labels_dir = Path(args.labels_dir)
@@ -231,18 +292,17 @@ def main() -> int:
         s = result_3d_overlap["per_axis_summary"][f"axis{a}"]
         print(f"  axis{a}: mean_overlap = {s['mean_overlap_ratio']:.4f} (n={s['n_cases']})")
 
-    # --- 2D audit ---
-    print("\n=== 2D LR-axis audit ===")
-    result_2d = audit_2d_com(labels_dir, kidney_cases)
+    # --- 2D audit (on preprocessed data, NOT NIfTI) ---
+    print("\n=== 2D LR-axis audit (on preprocessed data) ===")
+    result_2d = audit_2d_on_preprocessed(args.preprocessed_dir, args.max_cases)
     r2d_val = validate_2d_axis(result_2d)
-    in_slice = result_2d["in_slice_3d_axes"]
-    print(f"Slice axis (3D): {result_2d['slice_axis_3d']} (cranio-caudal)")
-    print(f"2D axis 0 → 3D axis {in_slice[0]}, 2D axis 1 → 3D axis {in_slice[1]}")
-    print(f"Total kidney-containing slices: {result_2d['total_kidney_slices']}")
-    print(f"axis0(LR) dominant in: {result_2d['axis0_votes']} slices")
-    print(f"axis1(AP) dominant in: {result_2d['axis1_votes']} slices")
+    print(f"Slice axis: {result_2d['slice_axis']}")
+    print(f"In-slice axes: {result_2d['in_slice_axes']}")
+    print(f"Total kidney slices: {result_2d['total_kidney_slices']}")
+    print(f"axis0 (H/AP) dominant: {result_2d['axis0_votes_H']} slices, mean sep={result_2d['mean_H_sep']:.1f}")
+    print(f"axis1 (W/LR) dominant: {result_2d['axis1_votes_W']} slices, mean sep={result_2d['mean_W_sep']:.1f}")
     print(f"Confirmed LR axis (2D): {result_2d['confirmed_lr_axis_2d']} "
-          f"(→ 3D axis {result_2d['maps_to_3d_axis']})")
+          f"(→ {result_2d['maps_to_3d_axis_name']})")
     print(f"Validation: {r2d_val['message']}")
 
     # --- nnU-Net baseline checks ---
@@ -266,11 +326,11 @@ def main() -> int:
     )
 
     manifest = {
-        "schema_version": "lr_axis_audit.v2",
+        "schema_version": "lr_axis_audit.v3",
         "task": "Task601_Article622_Carcass9Class",
         "confirmed_lr_axis_3d": confirmed_3d,
         "confirmed_lr_axis_2d": result_2d["confirmed_lr_axis_2d"],
-        "confirmed_lr_axis_2d_maps_to_3d_axis": result_2d["maps_to_3d_axis"],
+        "confirmed_lr_axis_2d_maps_to_3d_axis_name": result_2d["maps_to_3d_axis_name"],
         "left_kidney_label_id": LEFT_KIDNEY,
         "right_kidney_label_id": RIGHT_KIDNEY,
         "nnunet_3d_mirror_axes": list(nnunet_3d_axes),
@@ -323,20 +383,20 @@ def main() -> int:
         report += f"| {a} | {cs['mean_com_diff']:.1f} | {os['mean_overlap_ratio']:.4f} | {cs['n_cases']} |\n"
 
     report += f"""
-## 2D Result
+## 2D Result (on preprocessed data — nnU-Net 2D actual data)
 
-- **Slice axis (3D)**: {SLICE_AXIS_3D} (cranio-caudal, {case_ids[0] if case_ids else 'N/A'})
-- **In-slice axes**: 2D_0 → 3D_{IN_SLICE_3D_AXES[0]} (LR), 2D_1 → 3D_{IN_SLICE_3D_AXES[1]} (AP)
+- **Slice axis**: {result_2d['slice_axis']}
+- **In-slice axes**: {result_2d['in_slice_axes']}
 - **Total kidney slices**: {result_2d['total_kidney_slices']}
-- **axis0 (LR) dominant**: {result_2d['axis0_votes']} slices
-- **axis1 (AP) dominant**: {result_2d['axis1_votes']} slices
-- **Confirmed LR axis (2D)**: **{result_2d['confirmed_lr_axis_2d']}** → 3D axis {result_2d['maps_to_3d_axis']}
+- **axis0 (H/AP) dominant**: {result_2d['axis0_votes_H']} slices, mean sep={result_2d['mean_H_sep']:.1f}
+- **axis1 (W/LR) dominant**: {result_2d['axis1_votes_W']} slices, mean sep={result_2d['mean_W_sep']:.1f}
+- **Confirmed LR axis (2D)**: **{result_2d['confirmed_lr_axis_2d']}** → {result_2d['maps_to_3d_axis_name']}
 - **Validation**: {r2d_val['message']}
 
 ## nnU-Net Baseline mirror_axes
 
 - **3D**: `{nnunet_3d_axes}` — LR axis ({confirmed_3d}) in set: ✓
-- **2D**: `{nnunet_2d_axes}` — LR axis ({result_2d['confirmed_lr_axis_2d']}) in set: ✓
+- **2D**: `{nnunet_2d_axes}` — LR axis 2D={result_2d['confirmed_lr_axis_2d']} ({result_2d['maps_to_3d_axis_name']}) in set: ✓
 
 ## Verdict
 

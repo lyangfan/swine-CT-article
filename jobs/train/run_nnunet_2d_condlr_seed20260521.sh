@@ -21,7 +21,7 @@ export PYTHONHASHSEED=20260521
 OUT=/home/share/hzau/home/liuyangfan/swine-CT-article/data/nnunetv1/v1_comparison/nnunet_2d__condlr_seed20260521
 mkdir -p "${OUT}"
 cd "/home/share/hzau/home/liuyangfan/swine-CT-article"
-echo "=== train nnunet_2d condlr seed=20260521 axis=0 -> ${OUT} ==="
+echo "=== train nnunet_2d condlr seed=20260521 axis=1 -> ${OUT} ==="
 "${NNUNETV1_PYTHON}" -m framework.train \
     --network nnunet_v1 \
     --network-dim 2d \
@@ -29,6 +29,6 @@ echo "=== train nnunet_2d condlr seed=20260521 axis=0 -> ${OUT} ==="
     --config configs/nnunet_2d.yaml \
     --task-id 601 --fold 0 \
     --lr-mirror-mode conditional \
-    --conditional-mirror-axis 0 \
+    --conditional-mirror-axis 1 \
     --output-folder "${OUT}"
 echo "=== train_nnunet_2d_condlr_seed20260521 DONE (exit $?) ==="

@@ -36,7 +36,7 @@ CONDLR_NETWORKS_2D = ["nnunet_2d"]
 SEEDS = [20260520, 20260521, 20260522]
 
 
-def _load_axis_from_manifest(manifest_path: str | None, network_dim: str) -> int:
+def _load_axis_from_manifest(manifest_path, network_dim: str) -> int:
     """Read confirmed_lr_axis from the audit manifest."""
     if manifest_path is None:
         # Default from Stage 0 audit
