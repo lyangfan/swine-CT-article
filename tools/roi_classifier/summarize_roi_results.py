@@ -345,7 +345,12 @@ def summarize(args: argparse.Namespace) -> dict[str, Any]:
     best_selection: list[dict[str, Any]] = []
     for endpoint in sorted(best):
         rec = best[endpoint]
+        # Derive checkpoint path from output_dir (training records use output_dir,
+        # not checkpoint_path)
+        output_dir = rec.get("output_dir", "")
         checkpoint_path = rec.get("checkpoint_path", "")
+        if not checkpoint_path and output_dir:
+            checkpoint_path = str(Path(output_dir) / "model_best.pt")
         best_selection.append(
             {
                 "endpoint": endpoint,
@@ -366,10 +371,11 @@ def summarize(args: argparse.Namespace) -> dict[str, Any]:
     copied: list[str] = []
     for endpoint in sorted(best):
         rec = best[endpoint]
-        src = rec.get("checkpoint_path", "")
-        if src and Path(src).exists():
+        output_dir = rec.get("output_dir", "")
+        src = Path(output_dir) / "model_best.pt" if output_dir else Path("")
+        if src.exists():
             dst = frozen_dir / f"{endpoint}.pt"
-            shutil.copy2(src, dst)
+            shutil.copy2(str(src), str(dst))
             copied.append(str(dst))
         else:
             copied.append(f"MISSING: {src}")

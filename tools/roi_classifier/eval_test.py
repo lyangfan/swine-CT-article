@@ -167,9 +167,36 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     model = _build_resnet18(init_mode).to(device)
     model.load_state_dict(ckpt["model_state_dict"])
 
+    # ---- 3b. Load normalization stats for random-init models -------------
+    # Random-init models need per-split mean/std normalization, stored in
+    # the model's metrics_summary.json.  The frozen checkpoint lives in a
+    # different directory from the original model, so we need to resolve
+    # the metrics path separately.
+    normalize_stats = None
+    if init_mode == "random":
+        # Try: explicit --model-metrics arg, or checkpoint's parent dir
+        if args.model_metrics:
+            metrics_path = Path(args.model_metrics)
+        else:
+            metrics_path = checkpoint_path.parent / "metrics_summary.json"
+        if metrics_path.exists():
+            with metrics_path.open("r", encoding="utf-8") as f:
+                model_ms = json.load(f)
+            ns = model_ms.get("normalization_stats")
+            if ns is not None:
+                import numpy as np
+                normalize_stats = {
+                    "mean": np.asarray(ns["mean"], dtype="float32"),
+                    "std": np.asarray(ns["std"], dtype="float32"),
+                }
+        if normalize_stats is None:
+            raise ValueError(
+                f"Random-init model requires normalization_stats in "
+                f"{metrics_path} but none found.  Use --model-metrics to "
+                f"point to the original model's metrics_summary.json."
+            )
+
     # ---- 4. Create test DataLoader ---------------------------------------
-    # RoiProjectionDataset doesn't inherit from torch Dataset; follow the
-    # same pattern as train_roi_classifier.
     ds_cls = type(
         "RoiProjectionTestDataset", (RoiProjectionDataset, Dataset), {}
     )
@@ -177,7 +204,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         test_rows,
         label_by_case,
         init_mode,
-        normalize_stats=None,  # ImageNet normalization is applied internally when init_mode=="imagenet"
+        normalize_stats=normalize_stats,
         augment=False,
     )
     generator = torch.Generator().manual_seed(20260520)
@@ -284,6 +311,12 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         default=4,
         help="DataLoader workers (default: 4)",
+    )
+    parser.add_argument(
+        "--model-metrics",
+        default=None,
+        help="Path to original model's metrics_summary.json (needed for "
+        "random-init normalization stats when checkpoint is a frozen copy)",
     )
     parser.add_argument(
         "--device",
