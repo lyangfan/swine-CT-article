@@ -68,7 +68,8 @@
   },
   "confirmed_lr_axis_2d": 1,
   "confirmed_lr_axis_2d_maps_to_3d_axis_name": "W(LR)",
-  "confirmed_lr_axis_3d": 0,
+  "confirmed_lr_axis_3d": 2,
+  "confirmed_lr_axis_3d_note": "Corrected: was 0 (NIfTI axis), now 2 (preprocessed axis). NIfTI axis 0 (LR) maps to preprocessed axis 2 due to nnU-Net preprocessing reorientation.",
   "left_kidney_label_id": 4,
   "nnunet_2d_mirror_axes": [
     0,
@@ -89,7 +90,7 @@
     "overlap_margin_sufficient_3d": true
   },
   "right_kidney_label_id": 5,
-  "schema_version": "lr_axis_audit.v3",
+  "schema_version": "lr_axis_audit.v3.1",
   "task": "Task601_Article622_Carcass9Class",
   "training_gate": "PASS",
   "validation_2d": {

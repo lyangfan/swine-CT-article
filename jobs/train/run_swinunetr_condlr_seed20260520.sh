@@ -21,13 +21,13 @@ export PYTHONHASHSEED=20260520
 OUT=/home/share/hzau/home/liuyangfan/swine-CT-article/data/nnunetv1/v1_comparison/swinunetr__condlr_seed20260520
 mkdir -p "${OUT}"
 cd "/home/share/hzau/home/liuyangfan/swine-CT-article"
-echo "=== train swinunetr condlr seed=20260520 axis=0 -> ${OUT} ==="
+echo "=== train swinunetr condlr seed=20260520 axis=2 -> ${OUT} ==="
 "${NNUNETV1_PYTHON}" -m framework.train \
     --network swinunetr \
     --seed 20260520 \
     --config configs/swinunetr.yaml \
     --task-id 601 --fold 0 \
     --lr-mirror-mode conditional \
-    --conditional-mirror-axis 0 \
+    --conditional-mirror-axis 2 \
     --output-folder "${OUT}"
 echo "=== train_swinunetr_condlr_seed20260520 DONE (exit $?) ==="
