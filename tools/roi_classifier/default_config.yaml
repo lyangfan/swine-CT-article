@@ -1,0 +1,162 @@
+# default_config.yaml — ROI Half-Projection Presence Classifier
+# Ported from AutoScientists swct06042040 spec to swine-CT-article.
+# All §15 mandated changes applied (see commit message for diff vs source).
+
+project:
+  name: roi_half_projection_presence_classifier
+  scope: huawei_swine_ct_head_testis_presence_roi_half_projection
+  output_root: /home/share/hzau/home/liuyangfan/swine-CT-article/runs/roi_presence_classifier/
+  expected_case_count: 197
+
+labels:
+  endpoints:
+    - head_present
+    - testis_present
+  head_label_id: 9
+  testis_label_id: 6
+  allowed_gt_uses:
+    - case_level_presence_label
+    - global_orientation_anchor
+  forbidden_gt_uses:
+    - per_case_foreground_mask
+    - per_case_bbox
+    - per_case_roi_boundary
+    - classifier_input_pixels
+
+split:
+  seed: 20260520
+  reuse_previous_6_2_2: false
+  first_round_splits:
+    - train
+    - val
+  reserved_test: true
+  test_policy: sealed_no_projection_preview_prediction_metric
+
+projection:
+  view: canonical_lateral
+  axis: 2                                 # x = anatomical L-R (SimpleITK z,y,x order)
+  input_size: [224, 224]
+  preserve_aspect_with_padding: true
+  padding_value: 0.0
+  interpolation: bilinear
+  raw_array_reader: SimpleITK
+  raw_array_axis_order: z,y,x
+  projection_direction: anatomical_left_right   # project along x-axis (L-R)
+  collapse_axis: 2                               # collapse x (SimpleITK z,y,x)
+  canonical_output_axes:
+    x_axis: cranial_to_caudal
+    y_axis: table_back_or_dorsal_ventral_after_audit
+  flip_cranial_to_left: true
+  lower_side_default: bottom
+  require_orientation_verified: true
+  foreground:
+    threshold_hu: -800
+    includes_ct_bed: true
+    project_to_2d_before_fill: true
+    hole_fill_2d: true
+    connected_component_cleanup_2d: true
+    min_component_area_ratio: 0.001
+    bbox_padding_ratio: 0.05
+  channels:
+    muscle_window:
+      clip_hu: [-100, 250]
+    bone_only:
+      threshold_hu: 200
+    foreground_thickness:
+      foreground_threshold_hu: -800
+  variants:
+    - muscle_only_mean
+    - muscle_only_p90
+    - foreground_thickness
+    - bone_only_mip
+    - multi_channel_compact
+  compact_channels:
+    - muscle_window_p90
+    - foreground_thickness
+    - bone_only_mip
+
+roi:
+  cranial_fraction: 0.5
+  caudal_fraction: 0.5
+  roles:
+    head:
+      - head_cranial_half
+    testis:
+      - testis_caudal_half
+      - testis_caudal_lower_half
+  definitions:
+    head_cranial_half: cranial 50 percent of padded foreground bbox
+    testis_caudal_half: caudal 50 percent of padded foreground bbox
+    testis_caudal_lower_half: lower 50 percent inside caudal 50 percent bbox
+
+model_grid:
+  architecture: resnet18
+  classifier_type: endpoint_specific_binary
+  expected_model_count: 30
+  endpoints:
+    - head_present
+    - testis_present
+  init_modes:
+    - imagenet
+    - random
+
+training:
+  seed: 20260520
+  max_epochs: 100
+  early_stop_patience: 15
+  batch_size: 16
+  optimizer: adamw
+  lr:
+    imagenet: 0.0003
+    random: 0.001
+  weight_decay: 0.0001
+  warmup_epochs: 5
+  scheduler: cosine
+  loss: BCEWithLogitsLoss
+  pos_weight_cap: 5.0
+  amp: true
+  deterministic_cudnn: true
+  selection_metric: validation_auprc_with_false_absent_safety_gate
+  false_absent_gate_default: 1
+  init:
+    - imagenet
+    - random
+  forbidden_splits:
+    - test
+
+normalization:
+  imagenet:
+    input_range: [0, 1]
+    mean: [0.485, 0.456, 0.406]
+    std: [0.229, 0.224, 0.225]
+  random:
+    source: train_split_channel_mean_std
+
+augmentation:
+  allowed:
+    - mild_brightness_contrast
+    - gaussian_noise_blur
+  forbidden:
+    - cranial_caudal_flip
+    - uncontrolled_left_right_flip
+    - random_crop
+    - cutout
+    - erasing
+    - mixup
+    - cutmix
+
+scheduler:
+  grid_training_policy: one_single_gpu_job_sequential
+  resource: "cpu=8;mem=64000;gpu=1"
+  disallowed_node_suffix_min: 170
+  excluded_nodes:
+    - whshare-agent-174
+  submit_in_r1: false
+
+reports:
+  manifest_dir: data/manifests
+  projection_dir: data/projections
+  preview_dir: data/previews
+  models_dir: models
+  reports_dir: reports
+  jobs_dir: jobs

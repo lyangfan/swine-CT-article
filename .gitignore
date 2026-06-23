@@ -25,3 +25,7 @@ source/
 __pycache__/
 *.pyc
 *.pyo
+
+# ROI classifier outputs (never track)
+runs/
+*.npy
