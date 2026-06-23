@@ -1,38 +1,35 @@
-# Task601 LR Axis Audit Report
+# Task601 LR Axis Audit Report (v2.1 — CORRECTED)
 
 - **Task**: Task601_Article622_Carcass9Class
-- **Kidney cases (>=100vox both)**: 64
-- **Left kidney**: class 4, **Right kidney**: class 5
+- **Kidney cases**: 64 (>=100vox both)
 
-## 3D Result (dual method)
+## 3D Result — CORRECT
 
-- **CoM method**: LR axis = **0**, margin = 111.6
-- **Overlap method**: LR axis = **0**, margin = 0.2477
-- **Both methods agree**: True
+- **LR axis = 0** (CoM diff=90.7, AP=6.0, CC=2.2)
+- Both CoM and overlap methods agree
+- In nnU-Net 3D mirror_axes (0,1,2): YES
+- Conditional LR mirror applicable: **YES**
 
-| Axis | mean|CoM_diff| | mean Overlap | N Cases |
-|---|---:|---:|---:|
-| 0 | 119.0 | 0.2477 | 64 |
-| 1 | 7.4 | 0.0000 | 64 |
-| 2 | 4.2 | 0.0000 | 64 |
+## 2D Result — CORRECTED (v2.1)
 
-## 2D Result
+### Previous v2 audit ERROR
+The original v2 audit tested axial slices (along NIfTI axis 2 = CC/depth), finding that within axial slices, axis 0 is LR. **This was WRONG for nnU-Net 2D** because nnU-Net 2D does NOT slice along axis 2 — it slices along the axis with largest spacing.
 
-- **Slice axis (3D)**: 2 (cranio-caudal, 07069186)
-- **In-slice axes**: 2D_0 → 3D_0 (LR), 2D_1 → 3D_1 (AP)
-- **Total kidney slices**: 1299
-- **axis0 (LR) dominant**: 1299 slices
-- **axis1 (AP) dominant**: 0 slices
-- **Confirmed LR axis (2D)**: **0** → 3D axis 0
-- **Validation**: PASS: 2D LR axis=0 ∈ {0,1}
+### Correct analysis
+- nnU-Net 2D spacing: (5.0, 0.977, 0.977) mm
+- **Slice axis = 0** (largest spacing = 5.0mm)
+- In-slice spatial axes: [1, 2]
+  - 2D mirror axis 0 = NIfTI axis 1 (**AP**, CoM diff=6.0)
+  - 2D mirror axis 1 = NIfTI axis 2 (**CC**, CoM diff=2.2)
+- **LR axis (NIfTI axis 0) = SLICE AXIS — NEVER mirrored in 2D nnU-Net**
 
-## nnU-Net Baseline mirror_axes
+### Conclusion
+- **2D conditional LR mirror: N/A (not applicable)**
+- The 2D arm of this ablation is fundamentally invalid because the LR axis is consumed as the slice dimension
+- The 2D condlr results should be DISCARDED
+- Only the SwinUNETR (3D) arm provides valid evidence for the conditional LR mirror hypothesis
 
-- **3D**: `(0, 1, 2)` — LR axis (0) in set: ✓
-- **2D**: `(0, 1)` — LR axis (0) in set: ✓
-
-## Verdict
-
-- **Verdict**: **PASS**
-- **Training gate**: **PASS**
-- All pass criteria: True
+## 3D LR axis (still valid)
+- **confirmed_lr_axis_3d = 0**
+- In nnU-Net 3D mirror_axes (0,1,2): YES
+- Training gate: PASS

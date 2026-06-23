@@ -1,4 +1,12 @@
 {
+  "_changelog": "v2.1: corrected 2D audit — nnU-Net 2D slices along axis 0 (LR, spacing=5.0mm). In-slice axes are AP and CC; LR is NEVER mirrored in 2D. 2D conditional LR mirror is N/A.",
+  "_v2_error_correction": {
+    "date": "2026-06-24",
+    "discovered_by": "Post-hoc analysis of poor 2D condlr kidney results",
+    "error": "Original v2 audit tested axial slices (along axis 2), but nnU-Net 2D actually slices along axis 0 (LR) due to spacing anisotropy (5.0mm vs 0.977mm). The 2D audit was testing the WRONG slice orientation.",
+    "fix": "2D arm declared N/A. Only SwinUNETR (3D) arm is valid for this ablation.",
+    "impact": "conditional_mirror_axis=0 for 2D was disabling AP mirror, not LR mirror. 2D condlr experiment is invalid."
+  },
   "audit_2d": {
     "axis0_votes": 1299,
     "axis1_votes": 0,
@@ -13,6 +21,33 @@
     "n_kidney_cases": 64,
     "slice_axis_3d": 2,
     "total_kidney_slices": 1299
+  },
+  "audit_2d_corrected": {
+    "conclusion": "nnU-Net 2D slices along LR axis. 2D mirror_axes=(0,1) cover only AP and CC. Conditional LR mirror is FUNDAMENTALLY INAPPLICABLE for 2D nnU-Net on this dataset.",
+    "conditional_lr_mirror_applicable_2d": false,
+    "in_slice_3d_axes": [
+      1,
+      2
+    ],
+    "in_slice_axis_meanings": {
+      "mirror_axis_0": "NIfTI axis 1 (AP, CoM_diff=6.0)",
+      "mirror_axis_1": "NIfTI axis 2 (CC/depth, CoM_diff=2.2)",
+      "slice_axis": "NIfTI axis 0 (LR, CoM_diff=90.7) — NOT in mirror set"
+    },
+    "lr_axis_in_mirror_set": false,
+    "lr_axis_location": "SLICE AXIS — never mirrored in 2D nnU-Net",
+    "method": "nnunet_2d_slice_axis_analysis",
+    "nnunet_2d_patch_size": [
+      512,
+      512
+    ],
+    "nnunet_2d_slice_axis": 0,
+    "nnunet_2d_slice_axis_determination": "largest_spacing (5.0mm vs 0.977mm)",
+    "nnunet_2d_spacing": [
+      5.0,
+      0.97656202,
+      0.97656202
+    ]
   },
   "audit_3d_com": {
     "confirmed_lr_axis": 0,
@@ -65,8 +100,8 @@
     "total_in_manifest": 197,
     "with_both_kidneys_100vox": 64
   },
-  "confirmed_lr_axis_2d": 0,
-  "confirmed_lr_axis_2d_maps_to_3d_axis": 0,
+  "confirmed_lr_axis_2d": "N/A",
+  "confirmed_lr_axis_2d_maps_to_3d_axis": "N/A (LR is slice axis)",
   "confirmed_lr_axis_3d": 0,
   "left_kidney_label_id": 4,
   "nnunet_2d_mirror_axes": [
@@ -81,6 +116,8 @@
   "pass_criteria": {
     "com_margin_sufficient_3d": true,
     "com_vs_overlap_agree": true,
+    "lr_axis_2d_applicable": false,
+    "lr_axis_2d_in_mirror_set": false,
     "lr_axis_2d_in_valid_range": true,
     "lr_axis_3d_found": true,
     "lr_axis_3d_in_mirror_set": true,
@@ -88,13 +125,15 @@
     "overlap_margin_sufficient_3d": true
   },
   "right_kidney_label_id": 5,
-  "schema_version": "lr_axis_audit.v2",
+  "schema_version": "lr_axis_audit.v2.1",
   "task": "Task601_Article622_Carcass9Class",
   "training_gate": "PASS",
+  "training_gate_2d": "N/A",
   "validation_2d": {
     "axis_value": 0,
     "in_valid_range": true,
-    "message": "PASS: 2D LR axis=0 \u2208 {0,1}"
+    "message": "PASS: 2D LR axis=0 ∈ {0,1}"
   },
-  "verdict": "PASS"
+  "verdict": "PASS",
+  "verdict_2d": "N/A — LR axis is slice axis, not in mirror set, conditional LR mirror not applicable"
 }
