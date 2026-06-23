@@ -22,6 +22,8 @@ checkpoint only.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import torch
 from torch import nn
@@ -101,10 +103,14 @@ class MultiNetworkTrainer(nnUNetTrainerV2):
     """Network-agnostic nnU-Net v1 trainer.
 
     Extra keyword-only args vs the parent:
-      network_spec     : NetworkSpec for the architecture being trained
-      base_seed        : one of the 3 experiment seeds (20260520 / 21 / 22)
-      grad_accum_steps : physical-batch multiplier to reach effective batch 2
-                         (default 1 since the plan batch_size is already 2)
+      network_spec        : NetworkSpec for the architecture being trained
+      base_seed           : one of the 3 experiment seeds (20260520 / 21 / 22)
+      grad_accum_steps    : physical-batch multiplier to reach effective batch 2
+                            (default 1 since the plan batch_size is already 2)
+      lr_mirror_mode      : "full" (default, standard moreDA) or "conditional"
+                            (kidney-protected LR-mirror gating)
+      conditional_mirror_axis : spatial axis to disable for protected samples
+                                (default 0, from Stage 0 audit)
     """
 
     def __init__(
@@ -122,11 +128,20 @@ class MultiNetworkTrainer(nnUNetTrainerV2):
         network_spec: NetworkSpec,
         base_seed: int,
         grad_accum_steps: int = 1,
+        lr_mirror_mode: str = "full",
+        conditional_mirror_axis: int = 0,
     ):
         super().__init__(
             plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
             unpack_data, deterministic, fp16,
         )
+        self.lr_mirror_mode = str(lr_mirror_mode)
+        self.conditional_mirror_axis = int(conditional_mirror_axis)
+
+        if self.lr_mirror_mode not in ("full", "conditional"):
+            raise ValueError(
+                f"lr_mirror_mode must be 'full' or 'conditional', got {self.lr_mirror_mode!r}"
+            )
         self.network_spec = network_spec
         self.base_seed = int(base_seed)
         self.grad_accum_steps = max(1, int(grad_accum_steps))
@@ -157,6 +172,7 @@ class MultiNetworkTrainer(nnUNetTrainerV2):
             plans_file, fold, output_folder, dataset_directory, batch_dice, stage,
             unpack_data, deterministic, fp16,
             network_spec.name, int(base_seed), int(grad_accum_steps),
+            str(lr_mirror_mode), int(conditional_mirror_axis),
         )
 
     # ------------------------------------------------------------------ #
@@ -218,6 +234,28 @@ class MultiNetworkTrainer(nnUNetTrainerV2):
             self.plans["data_identifier"] + "_stage%d" % self.stage,
         )
 
+        # --- conditional LR-mirror patch (Stage 2, spec §5) ---
+        self._mirror_patch_info = None
+        if training and self.lr_mirror_mode == "conditional":
+            from .transforms.conditional_mirror import install_conditional_mirror_patch
+
+            record_dir = Path(self.output_folder).parent / "records"
+            record_dir.mkdir(parents=True, exist_ok=True)
+            run_name = f"{self.network_spec.name}__seed{self.base_seed}"
+
+            self._mirror_patch_info = install_conditional_mirror_patch(
+                record_dir=record_dir,
+                run_name=run_name,
+                protected_class_ids=(4, 5),
+                conditional_mirror_axis=self.conditional_mirror_axis,
+                protected_min_voxels=1,
+                log_interval=25,
+            )
+            self.print_to_log_file(
+                f"[conditional-mirror] patch installed: axis={self.conditional_mirror_axis} "
+                f"protected_classes=(4,5) min_voxels=1"
+            )
+
         if training:
             self.dl_tr, self.dl_val = self.get_basic_generators()  # load_dataset + do_split
             if self.unpack_data:
@@ -244,6 +282,36 @@ class MultiNetworkTrainer(nnUNetTrainerV2):
                 "VALIDATION KEYS:\n %s" % str(self.dataset_val.keys()),
                 also_print_to_console=False,
             )
+
+            # --- record augmentation witness after get_moreDA_augmentation ---
+            if self._mirror_patch_info is not None:
+                self.print_to_log_file("[conditional-mirror] recording augmentation witness...")
+                try:
+                    from .transforms.conditional_mirror import record_witness
+
+                    record_dir2 = Path(self.output_folder).parent / "records"
+                    run_name2 = f"{self.network_spec.name}__seed{self.base_seed}"
+                    record_witness(
+                        record_dir=record_dir2,
+                        mirror_patch_info=self._mirror_patch_info,
+                        tr_gen=self.tr_gen,
+                        run_name=run_name2,
+                        loss_name="DC_and_CE_loss",
+                        network_name=self.network_spec.name,
+                        sampler_info="force-fg 0.33",
+                        optimizer_name="SGD" if self.network_spec.family == "cnn" else "AdamW",
+                        cudnn_deterministic=True,
+                        cudnn_benchmark=False,
+                    )
+                    self.print_to_log_file(
+                        f"[conditional-mirror] witness written: {record_dir2 / 'augmentation_witness.json'}"
+                    )
+                except Exception as exc:
+                    import traceback
+                    self.print_to_log_file(
+                        f"[conditional-mirror] WARNING: witness recording failed: {exc}"
+                    )
+                    self.print_to_log_file(traceback.format_exc())
 
         self.initialize_network()
         self.initialize_optimizer_and_scheduler()

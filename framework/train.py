@@ -51,6 +51,12 @@ def main() -> int:
     parser.add_argument("--plans-identifier", default="nnUNetPlansv2.1")
     parser.add_argument("--output-folder", required=True)
     parser.add_argument("--grad-accum", type=int, default=1, help="physical-batch multiplier for effective batch 2 (default 1)")
+    parser.add_argument("--lr-mirror-mode", default="full", choices=["full", "conditional"],
+                        help="LR mirror mode: full (default, standard moreDA) or conditional (kidney-protected)")
+    parser.add_argument("--conditional-mirror-axis", type=int, default=0,
+                        help="spatial axis to disable LR mirror for protected samples (default 0, from Stage 0 audit)")
+    parser.add_argument("--lr-axis-audit-manifest", default=None,
+                        help="optional: path to lr_axis_audit_manifest.json for startup validation")
     parser.add_argument("--cuda-visible-devices", default=None)
     args = parser.parse_args()
 
@@ -90,6 +96,36 @@ def main() -> int:
     )
     spec = get_network_spec(args.network)
 
+    # --- LR-mirror-mode validation ---
+    lr_mirror_mode = args.lr_mirror_mode
+    conditional_mirror_axis = args.conditional_mirror_axis
+
+    if lr_mirror_mode == "conditional":
+        # R5: 2D axis must be in {0,1}
+        if args.network_dim == "2d" and conditional_mirror_axis not in (0, 1):
+            raise ValueError(
+                f"--conditional-mirror-axis={conditional_mirror_axis} not valid for 2D "
+                f"(2D mirror_axes are (0,1); axis must be 0 or 1)"
+            )
+        # Optional startup validation against audit manifest
+        if args.lr_axis_audit_manifest:
+            import json as _json
+            manifest_path = Path(args.lr_axis_audit_manifest)
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"LR-axis audit manifest not found: {manifest_path}")
+            manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest_axis = manifest.get("confirmed_lr_axis_3d") if args.network_dim == "3d_fullres" \
+                            else manifest.get("confirmed_lr_axis_2d")
+            if manifest_axis is not None and int(manifest_axis) != conditional_mirror_axis:
+                raise ValueError(
+                    f"--conditional-mirror-axis={conditional_mirror_axis} does not match "
+                    f"audit manifest ({args.network_dim} axis={manifest_axis})"
+                )
+            manifest_verdict = manifest.get("training_gate") or manifest.get("verdict")
+            if manifest_verdict != "PASS":
+                raise RuntimeError(f"Audit manifest verdict is not PASS: {manifest_verdict}")
+            print(f"[train] lr-axis-audit-manifest: {manifest_path} — axis={manifest_axis}, verdict={manifest_verdict}")
+
     trainer = MultiNetworkTrainer(
         plans_file,
         args.fold,
@@ -103,11 +139,14 @@ def main() -> int:
         network_spec=spec,
         base_seed=args.seed,
         grad_accum_steps=args.grad_accum,
+        lr_mirror_mode=lr_mirror_mode,
+        conditional_mirror_axis=conditional_mirror_axis,
     )
 
     config = {"network": args.network, "seed": args.seed, "fold": args.fold, "config": args.config,
               "task_id": args.task_id, "stage": stage, "batch_dice": batch_dice,
               "grad_accum_steps": args.grad_accum, "fold_seed": fold_seed,
+              "lr_mirror_mode": lr_mirror_mode, "conditional_mirror_axis": conditional_mirror_axis,
               "plans_file": plans_file, "dataset_directory": dataset_directory,
               "spec": {"forward_protocol": spec.forward_protocol, "family": spec.family,
                        "conv_op": spec.conv_op.__name__, "needs_wrap": spec.needs_wrap,
