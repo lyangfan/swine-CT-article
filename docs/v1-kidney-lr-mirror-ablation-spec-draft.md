@@ -1,293 +1,325 @@
-# Spec Draft — Kidney LR-mirror 关闭 ablation(2D nnUNet + SwinUNETR)
+# Spec Draft — Kidney LR-mirror conditional ablation(2D nnUNet + SwinUNETR)
 
-Status: **问题清单 + 待决项**,尚未决策。本文目的是把"要落地得到结论必须考虑的
-所有问题"摆全,后续基于此整理成正式 spec。
+Status: §13(35 项)+ §14(C-1..C-6 统一 run_eval.py 连锁)全部闭合;**正式 spec 待同步**(§14 统一架构 + C-1..C-6 决策 → spec §7.2/§7.3/§7.4 + make_figures/CLAUDE.md)。
 
 Date: 2026-06-23
 
 关联:
-- 主对比 spec:[`v1-input-consistency-spec.md`](v1-input-consistency-spec.md)
-- 主对比决策记录:[`v1-input-consistency-spec-draft.md`](v1-input-consistency-spec-draft.md)
+- 主对比 spec:[`v1-input-consistency-spec.md`](v1-input-consistency-spec.md)(环境/路径/公平性,本文引用)
 - 先验证据:[`SWCT06042040-HUAWEI-V1-KIDNEY-MIRROR-CLASSIFIER-HARDZERO-HANDOFF.md`](SWCT06042040-HUAWEI-V1-KIDNEY-MIRROR-CLASSIFIER-HARDZERO-HANDOFF.md)
-- 实验跟踪:GitHub issue #1
+- 实验跟踪:GitHub issue #1;2D 统一入口 commit `c585966`
 
 ---
 
-## 0. 一句话目标 + scope 声明
+## 0. 目标 + scope
 
-在 issue #1 主对比中**分割质量最好的两个网络(nnU-Net 2D、SwinUNETR)**上,
-把训练增强里的 **LR(left-right)axis mirror 关闭**(或条件关闭),验证能否改善
-kidney 的 tail 指标(Dice P10 / HD95 P90)与左右混淆(swap rate / LP-Dice gap),
-同时确认对其它 class 无副作用。
+在 issue #1 最强的两个网络(nnU-Net 2D、SwinUNETR)上,把 LR mirror 改为**条件禁用**
+(conditional:仅含 kidney 的 sample 禁 LR flip)。验证能否改善 kidney tail(Dice P10 / HD95 P90)
+与左右混淆(swap rate / LP-Dice gap),且对其它 class 无副作用。
 
-**scope 严格声明(必须写进正式 spec):**
-- framework = swine-CT-article 的 `framework/`(Task601, 3-seed, locked evaluator);
-- 网络 = nnU-Net 2D + SwinUNETR 两个;
-- **不**与 handoff 文档里的 Huawei v1(Task520 r20, fold4)结果混比 —— 那是另一个
-  task / 另一个 framework / 单 fold,只能作为**先验与方法论参考**,不能直接外推;
-- **不**在本实验里碰 head/testis 条件类 gate(那是 handoff 实验 C 的方向)。
+- framework = `framework/`(Task601, 3-seed, locked evaluator);2D/3D 统一走 MultiNetworkTrainer(c585966);
+- 网络 = nnU-Net 2D + SwinUNETR;不与 handoff(Task520)混比;不碰 head/testis gate。
 
-## 1. 动机:为什么挑这两个网络、为什么现在做
+## 1. 动机
 
-issue #1 最终结果里,kidney 相关数据(3-seed):
+issue #1(3-seed):SwinUNETR kidney Dice 最高(0.934/0.935)但 HD95 P90 26–97mm、52% case 混淆;
+nnU-Net 2D HD95 P90 高达 116–120mm、40% 混淆。handoff 先验(关 LR mirror 把 v1 fold4 kidney HD95 P90
+从 ~64/46 砸到 ~3/2.8)提示 LR mirror 是 kidney tail 风险因素,但能否迁移到 2D+SwinUNETR 是本实验
+要回答的(正负都有效)。
 
-| 网络 | L/R kidney Dice | L-kidney HD95 P90 | R-kidney HD95 P90 | kidney swap rate | 混淆 case 比例 |
-|---|---|---|---|---|---|
-| SwinUNETR | **0.934 / 0.935**(最高) | 26.6 mm | **97.1 mm** | **2.3%**(最低) | 52 ± 8% |
-| nnU-Net 2D | 0.926 / 0.923 | **116.3 mm** | **120.3 mm** | 4.2% | 40 ± 6% |
+## 2. 环境与路径(事实,引用 v1 spec §3/§4)
 
-观察:
-- **SwinUNETR**:kidney 平均 Dice 最高、swap 最低,但 **HD95 P90 仍有 26–97 mm 的
-  尾部**,且 **52% 的 case 出现左右混淆** —— 平均好,tail/混淆仍有空间。
-- **nnU-Net 2D**:Dice 不差,但 **HD95 P90 高达 116–120 mm**(极差 tail),且仍有
-  40% case 混淆。tail 极可能是少数 case 左右肾彻底崩。
+- `NNUNETV1_PYTHON` = `swine_ct_autonomous_discovery/envs/nnunetv1/bin/python`;
+- setup `swine_ct_autonomous_discovery/runs/swct06042040_codex_hv1_kidney_phase2_v3/task/tools/adopted/setup_nnunetv1_env.sh`;
+- `PYTHONPATH` = `swine_ct_autonomous_discovery/scripts/nnunetv1_compat`(确定性套件);
+- 三个 nnUNet data-root 覆盖到 `swine-CT-article/data/nnunetv1` + `SWCT_RESPECT_EXISTING_NNUNETV1_PATHS=1`;
+- module load: gcc9.3/cuda11.8/cudnn8.8.1/nccl2.16.5/openblas;`swct_nnunetv1_preflight` 必须通过;
+- Task601 preprocessed:3D `nnUNetData_plans_v2.1_stage1/`、2D `nnUNetData_plans_v2.1_2D_stage0/`;
+  split `splits_final.pkl`(`place_split.py`,2D/3D 共用)。
 
-handoff 在 Huawei v1 fold4 上的先验:关掉 LR-axis mirror 把 kidney HD95 P90 从
-`left=64.7 / right=46.6` 砸到 `left≈3.1 / right≈2.8`,Dice 从 ~0.93 提到 ~0.97。
-**强烈提示 LR mirror 是 kidney tail 的重要风险因素** —— 但那是在另一个 framework
-/ task / 单 fold / 单网络(v1 3D)上,能否迁移到 2D 与 SwinUNETR 是本实验要回答的。
+## 3. 已澄清事实
 
-> ⚠️ 注意:这是个**真问题**,不是"关了肯定好"。SwinUNETR 的全局注意力可能已经
-> 隐式处理了左右语义(它的 swap 本来就最低),关 mirror 也许没收益甚至变差;2D 逐
-> slice 处理,关 LR flip 对左右混淆的机制和 3D 不同。**正负结果都是有效结论。**
+### Q1. baseline 开 LR mirror?(已确认:开了)
+SwinUNETR 继承 nnUNetTrainerV2 3d_fullres 默认 `(0,1,2)`;2D 走 MultiNetworkTrainer 默认 `(0,1)`。
+smoke 时 `print(self.data_aug_params["mirror_axes"])` 坐实。
 
----
+### Q2. LR axis = 第几轴?(已定:3D+2D 都在 Stage 0 audit)
+Task601 ≠ handoff Task520,必须重测。方法:取双肾都在且左右不对称的 case,沿各 axis `np.flip`,
+看 class4/5 体素是否互换 → 互换轴 = LR;2D 需分辨 axial slice 内哪个轴是真 LR。
+产物:`confirmed_lr_axis_3d` / `confirmed_lr_axis_2d` + witness md。
 
-## 2. 待澄清事实(audit,必须在动手前完成)
-
-### Q1. baseline 这两个网络现在到底有没有开 LR-axis mirror?
-
-- **SwinUNETR**:几乎确定**开了**。`MultiNetworkTrainer.initialize()`(base_trainer.py:197)
-  调父类 `setup_DA_params()`,**代码里没有任何对 `mirror_axes` 的覆盖** → 继承
-  nnU-Net v1 3d_fullres 默认 `mirror_axes=(0,1,2)`,随后 `get_moreDA_augmentation`
-  (base_trainer.py:230)据此构建 `MirrorTransform`。
-  - audit 做法:在 SwinUNETR baseline 的 `fold_0/training_log*.txt` 里 grep
-    `mirror_axes`,或加一行 `print(self.data_aug_params["mirror_axes"])` 跑 smoke。
-    预期 `(0, 1, 2)`。
-- **nnU-Net 2D**:**待确认**。2D 走的是 `train_paca_deterministic.py --network 2d`
-  这个**不在本仓库**的 wrapper(见 Q3),其 mirror_axes 由原生 `nnUNetTrainerV2`
-  的 2d 分支决定(原始 nnU-Net v1 对 2d 默认 `(0,1)`)。必须打开那个 wrapper 确认。
-  - **若 baseline 2D 根本没开 LR mirror → 本实验对 2D 无意义**,需重新选题。
-
-### Q2. LR 解剖轴在 patch 里到底是第几个 axis?(axis audit)
-
-handoff 在 Task520 上 `confirmed_lr_axis=2`。但本实验是 **Task601**,patch 不同
-(3d_fullres stage1 = `[64,160,160]`),**必须重新 audit,不能沿用 2**。
-
-- 3D(SwinUNETR):patch 通常 `(z, row, col)` = `(axis0, axis1, axis2)`,LR 一般是
-  col = axis2,但要拿一个**左右不对称、且 left/right kidney label 都在**的 HZAU 或
-  TB case 验证:沿某 axis 翻转 label 后,`left_kidney(class4)` 与 `right_kidney(class5)`
-  的体素位置互换 → 那个 axis 就是 LR。
-- 2D:数据是逐 slice 的 `(c, row, col)`,mirror axes `(0,1)` 对应 row/col。LR 是其中
-  一个,但**还要分清是哪个 slicing 方向的 slice** —— axial slice 的左右才是解剖左右,
-  sagittal/coronal slice 的"左右翻转"解剖意义不同。2D nnU-Net 把所有 slice 混采,
-  mirror 翻的是 slice 内的轴,需要确认这个轴对 axial slice 而言确实是 LR。
-- audit 产物:写一个 `tools/audit_lr_axis.py`,输出 `confirmed_lr_axis_3d` 与
-  `confirmed_lr_axis_2d` + witness md(对标 handoff 的 `lr_axis_audit` 报告)。
-
-### Q3. 2D 的训练入口在哪?改 mirror 改哪个文件?(工程拦路虎)
-
-- 已确认:`framework/train.py:15-16` 注释 "This module is 3D-only. The 2D nnUNet
-  reference trains via `train_paca_deterministic.py --network 2d` wrapper"。
-- 全仓 grep:**`train_paca_deterministic.py` 不在 swine-CT-article 仓库**。它应该
-  在 Huawei 端的另一个 workspace(候选:`swine_ct_autonomous_discovery`、或某个
-  `paca` 训练脚手架)。issue #1 评论 4 记的 2D 权重路径是
-  `data/nnunetv1/v1_comparison_2d_root/seed<seed>/runs/nnunet_2d__seed<seed>/`,
-  反推 wrapper 位置。
-- **决策点(必须先定)**:
-  - (a) 找到那个 wrapper,在它里面改 mirror_axes(保持和 baseline 同源,但改动在本
-    仓库之外,破坏"本地 canonical"原则);
-  - (b) 把 2D 也纳入 `framework/`(写一个 2D 的 MultiNetworkTrainer 路径 / 或让
-    `train.py` 支持 `--network-dim 2d`),**重训 2D baseline 对齐** → 工作量大,但
-    本仓库自洽、可复现;
-  - (c) 本实验**先只做 SwinUNETR**(3D,落点清晰),2D 留到入口问题解决后补。
-  - [建议] 先 (c) 拿 SwinUNETR 结论,同时并行排查 (a) 的 wrapper 位置;2D 是否值得
-    为它做 (b),取决于 SwinUNETR 的结果是否成立。
+### B-5. ✅ audit 脚本放 `tools/audit_lr_axis.py`(新建 `tools/` 目录)
+**决策**:新建 `tools/` 目录,放 `audit_lr_axis.py`。
+- 理由:audit 是独立类别"实验工具"(非训练框架、非评估指标);未来 telemetry 验证/determinism smoke
+  等集中 tools/;对齐 handoff 先例(`runs/swct06042040/tools/`);不污染 framework/evaluation。
+- tools/ 定位:**正式实验工具**(实验复现需要、长期保留),非一次性试探脚本。
 
 ---
 
-## 3. 实验设计决策
+## 4. 设计决策(已定)
 
-### Q4. full-disable 还是 conditional mirror,还是都做?
-
-handoff 两个方案在 fold4 上几乎等价(HD95 P90 都降到 ~3/2.3)。差异在工程与设计:
-- **full-disable(LR-safe)**:直接把 LR axis 从 `mirror_axes` 移除。改动 = 一行
-  `data_aug_params["mirror_axes"] = tuple(a for a in (...) if a != lr_axis)`。
-  风险最低、最易复现,但其它 class 也失去了 LR mirror 的泛化增益。
-- **conditional**:仅当 patch 含 kidney class(4/5)时关 LR mirror,其余 sample 保留。
-  设计上更优(保护 kidney + 保留其它 class 增益),但 `get_moreDA_augmentation`
-  内部固定构建 `MirrorTransform`,要做 per-sample 条件翻转,得 fork / monkey-patch
-  该函数或自定义 `MirrorTransform` 子类 —— **工程量大、易引入 bug、且偏离 baseline
-  管线**(破坏"唯一变量"的公平性叙事)。
-- [建议] **第一阶段只做 full-disable**(2 网络 × 3 seed = 6 job,低风险、handoff 已
-  证有效)。若 full-disable 对 kidney 有效**且**对其它 class 有可见副作用,再上
-  conditional 作为第二阶段 ablation。不要一开始就上 conditional。
-
-### Q5. 只做这 2 个网络,还是要回扫全部 5 网络?
-
-- 用户已明确:**先在最好的 2 个上做 pilot**。合理 —— 避免一开始就 5×3=15 job
-  盲跑。
-- [建议] 正式 spec 里写明"分阶段":Phase 1 = SwinUNETR(+ 2D 若 Q3 解决);**若结论
-  成立**,Phase 2 扩到其余 3 个网络(nnU-Net v1 / SegFormer3D / MedNeXt-S)做完整
-  ablation,才能支撑论文里"LR mirror 对 kidney tail 的影响是架构无关的"这类claim。
-  只 2 个网络不足以泛化。
-
-### Q6. 改动的代码落点(SwinUNETR 路径)
-
-[建议] 在 `MultiNetworkTrainer` 加一个 keyword-only 参数 `lr_mirror_mode:
-Literal["full","no_lr"] = "full"`,在 `initialize()` 里 `setup_DA_params()` 之后、
-`get_moreDA_augmentation()` 之前:
-
-```python
-if self.lr_mirror_mode == "no_lr":
-    before = self.data_aug_params["mirror_axes"]
-    self.data_aug_params["mirror_axes"] = tuple(
-        a for a in before if a != self.lr_axis
-    )
-    self.print_to_log_file(f"LR-mirror disabled: {before} -> {self.data_aug_params['mirror_axes']}")
-```
-
-- `self.lr_axis` 来自 Q2 的 audit 结果(写进 config / trainer 常量,不要硬编码 2)。
-- baseline 默认 `lr_mirror_mode="full"`,**保证已训完的 baseline 完全不受影响**。
-- audit + smoke(打印改前/改后 mirror_axes + 确认 forward 正常)必须在提交前 PASS。
-
-### Q7. 变量控制:与 baseline 逐项对齐清单(公平性生命线)
-
-正式 spec 必须有一张"对齐表",逐项确认 no_lr 实验与 issue #1 baseline **除 mirror
-外完全一致**:
-
-| 维度 | 必须一致 | 备注 |
-|---|---|---|
-| split / fold | Task601, fold 0, train=120/val=38 | 复用 `place_split.py` 产物 |
-| seeds | 20260520 / 21 / 22(3 个) | **必须复用**,才能 per-case 配对 |
-| patch | `[64,160,160]` + effective batch 2 | 不变 |
-| 其它增强 | moreDA 全套(除 mirror) | 只动 mirror_axes |
-| sampling | force-fg 0.33 | 不变 |
-| budget | 500ep × 250 = 125 000 iters | 不变 |
-| loss | DC_and_CE_loss(DS 权重同 baseline) | 不变 |
-| optimizer | SwinUNETR=AdamW(4e-4, warmup-cosine) | 不变 |
-| checkpoint | final only | 不变 |
-| determinism | cudnn.deterministic=True, benchmark=False | 不变 |
-| predict | sliding window 0.5, TTA off, no PP | 不变 |
-| eval | locked evaluator + kidney_swap_eval | 与 issue #1 同口径 |
-
-> 任何一项偏移都会让"关 mirror"的归因失效。正式 spec 要逐行可勾选。
+- **Q3**:2D 纳入 MultiNetworkTrainer(c585966);2D baseline 不重训(改前改后等价已核实:clip 原生就有)。
+- **Q4**:只做 conditional(不做 full-disable,handoff A1 做过);kidney voxel≥1 禁该 sample LR flip;
+  3D 按 patch / 2D 按 slice。
+- **Q5**:只 SwinUNETR + nnU-Net 2D;论文不 claim 架构无关。
+- **Q7**:与 baseline 逐项对齐(split/seeds/patch/增强/sampling/budget/loss/optimizer/ckpt/determinism/
+  predict/eval/trainer 子类);trainer 子类已核实等价。
 
 ---
 
-## 4. 评估与统计
+## 5. conditional 实现 —— 待决策(工程核心)
 
-### Q8. 报告哪些指标?
+> conditional 不能用"改 mirror_axes 一行"实现 —— `get_moreDA_augmentation` 内部 `MirrorTransform`
+> 对整 batch 统一翻转,不支持 per-sample 条件。需要自定义 transform。**具体怎么落,以下待定。**
 
-**kidney 重点(必须):**
-- left/right kidney:mean Dice、Dice P10、mean HD95、HD95 P90、FP/GT、FN/GT;
-- 左右混淆:swap rate、LP-Dice gap、混淆 case 比例(per-seed mean±std)—— 复用
-  `kidney_swap_eval.py`,口径与 issue #1 完全一致。
+### B-1. ✅ conditional 代码放 `framework/transforms/conditional_mirror.py`(新建)
+**决策**:新建独立文件,照搬 handoff 三组件:`ConditionalMirrorTransform` 类 + `install_conditional_mirror_patch`
++ factory(见 B-6)。
+- 理由:transform 是数据增强逻辑,独立于 trainer;不污染 base_trainer;集中自洽、好审查;最大化复用 handoff 已验证代码。
+- 需新建 `framework/transforms/` 目录。
 
-**副作用(必须,确认无损):**
-- 全 9 class 的 mean Dice / IoU / HD95,逐 class 给 baseline vs no_lr 的 Δ;
-- 条件类(head/testis)absent-FP:确认关 mirror 没有让幻觉变多;
-- 特别盯 front(handoff 里 v1 关 mirror 后 front 有极轻微 +Δ,可能是 head FP 概率
-  回流)—— 本实验无 head gate,但仍值得看。
+### B-2. ✅ train.py 加 `--lr-mirror-mode {full,conditional}`(default `full`)
+**决策**:train.py 加 `--lr-mirror-mode` enum,透传给 MultiNetworkTrainer(`lr_mirror_mode=args.lr_mirror_mode`)。
+- 理由:enum 可扩展(将来加 no_lr 只加 choice);与 trainer 内部 `lr_mirror_mode` 同名同义,透传直接;job 脚本显式自文档化。
 
-### Q9. 怎么做统计检验?
+### B-6. ✅ 模块符号 patch(`da_more.MirrorTransform = factory`,对齐 handoff)
+**决策**:用 handoff 的 `install_conditional_mirror_patch` —— `da_more.MirrorTransform = factory`(替换 moreDA
+模块的 MirrorTransform 符号指向),**不 fork get_moreDA**;factory 闭包注入参数返回 ConditionalMirrorTransform。
+- 技术约束(机制保证,非决策):pipeline 位置 = MirrorTransform 原位(get_moreDA_augmentation 内部调用自动
+  变成 ConditionalMirrorTransform);seg 访问 = `data_dict["seg"]`;DS 顺序 = 原始分辨率。
+- per-sample 机制:batchgenerators transform 本就 per-sample;ConditionalMirrorTransform 读 sample seg →
+  含 kidney 则该 sample LR **强制不翻**,其余 axis 正常随机;不含 kidney 则全套随机。handoff A2 telemetry
+  证实(`protected_lr_mirror_count=0`)。
+- 理由:对齐 handoff(三组件整套照搬);省代码(不复制 get_moreDA);模块符号级 patch 影响面可控(只 moreDA 模块内)。
+- **修正记录**:原 B-6 决策 fork(我当初把 monkey-patch 一棍子打成"全局副作用",判断不准);审核对比
+  handoff 源码后改为模块符号 patch。
 
-- **配对对象**:每个 test case、每个 seed 的 per-case kidney Dice/HD95,baseline vs
-  no_lr **同一 (case, seed) 配对** —— 这就是为什么 Q7 要求 seed 必须复用。
-- **检验**:Wilcoxon signed-rank(双侧),3-seed 平均后逐 case 配对,或逐 seed 配对
-  后再用 Holm-Bonferroni 校正(正式 spec 要定死一种,建议 per-case 3-seed 平均后
-  配对,与 issue #1 的 Wilcoxon 口径一致)。
-- 样本量:39 cases × 3 seed。比 handoff 的单 fold 39 cases 更强。
-- 报告:p 值 + Holm 校正后显著性 + 效应量(kidney HD95 P90 的绝对降幅)。
+### B-7. ✅ telemetry 对齐 handoff(transform 实例属性 + JSONL 流式 + witness)
+**决策**:复用 handoff A2 的 `ConditionalMirrorTransform` 类(line 212-371,已含 telemetry),不新设计。
+- 计数:transform **实例属性** `self._window`(per-instance;非全局类变量、非 trainer 属性;计数在 transform 里就近发生);
+  含 `protected_sample_count` / `nonprotected_sample_count` / `protected_axis2_mirror_count`(**必须=0**) /
+  `nonprotected_axis2_mirror_count` / `axis0/1/2_mirror_count`。
+- 输出:`<record_dir>/conditional_mirror_components.jsonl`(**JSONL 流式**,每 log_interval append;
+  训练中途可查、崩溃可追溯,优于单 json)。
+- witness:`<record_dir>/augmentation_witness.json`(配置 + `remaining_original_mirror_transform_count==0`
+  硬验证原 MirrorTransform 已被替换)。
+- 提交前必读:`protected_axis2_mirror_count==0` 且 `remaining_original_mirror_transform_count==0`,才能进 Stage 4。
+- 理由:handoff A2 已验证输出过该 telemetry;流式鲁棒;复用降低新设计风险。
 
-### Q10. 阴性 / 混合结果怎么处理?
+### B-10. ✅ 参数传递:固定参数写死 + axis 走 CLI
+**决策**:固定参数写死(trainer 常量 / install_conditional_mirror_patch 默认),axis 显式 CLI。
+- 固定参数:`protected_class_ids=(4,5)` / `protected_min_voxels=1` / `log_interval=25` / `p_per_sample=1`
+  (本实验固定,沿用 handoff 默认,不暴露冗余 CLI);`run_name`/`instance_index` 由 install_patch 自动生成。
+- 动态参数(axis):train.py 加 `--conditional-mirror-axis <int>`,job 脚本传 audit(Q2)产的
+  `confirmed_lr_axis_3d` / `confirmed_lr_axis_2d`。
+- 可选交叉验证:`--lr-axis-audit-manifest`,train.py 启动时校验 CLI axis == manifest axis(防手抖;**涵盖审核遗漏 3**)。
+- 理由:固定隐式 + 动态显式;比 CLI 全参数简洁,比全自动读 manifest 可查。(**涵盖审核遗漏 5**:telemetry 参数值已定。)
 
-- **必须预设**:若 SwinUNETR 关 mirror 后 kidney 无改善或变差,这**不是失败**,而
-  是"transformer 全局注意力已隐式处理左右语义、显式关 mirror 无额外收益"的有效
-  结论,照实写进论文。
-- 若 2D 改善、SwinUNETR 不改善 → 说明 LR mirror 对 kidney tail 的影响**架构相关**,
-  同样是有价值的发现。
-- 正式 spec 要写明"双向假设",避免 confirmation bias 只报喜。
-
----
-
-## 5. 工程与调度
-
-### Q11. 训练规模 / 节点 / 预算
-
-- Phase 1:SwinUNETR × 3 seed = 3 job(若 2D 入口解决,+3 = 6 job)。
-- 单 job ≈ baseline 训练时长(SwinUNETR 3D,125k iters)。
-- 节点约束:`agent<170`、**不**用 `whshare-agent-174`(CLAUDE.md);单卡并发。
-- 提交后按 CLAUDE.md 做 **early-runtime 检查**:dsub 后 1–2min `djob <id>`,FAILED
-  立刻读 `.err` 修(常见:flag 拼写、缺 module load、缺执行权限);长任务每 ~10min
-  复查。
-
-### Q12. 产物命名与路径(绝不覆盖 baseline)
-
-[建议] 命名后缀 `__nolr`:
-- checkpoint:`data/nnunetv1/v1_comparison/swinunetr__nolr_seed<seed>/fold_0/model_final_checkpoint.model`;
-- prediction:`data/nnunetv1/v1_comparison_predictions/swinunetr__nolr_seed<seed>/*.nii.gz`;
-- eval:`evaluation/results_locked/`(与 baseline 同目录,靠 method 列区分)。
-- DSUB job 脚本放 `jobs/train/`、`jobs/predict/`,新文件不覆盖 baseline 脚本。
-
-### Q13. determinism / 复现
-
-- 关 mirror 是给定 seed 下确定性的(augmentation 随机序列会变,但可复现)。
-- 保持 `cudnn.deterministic=True`、worker seeds、`PYTHONHASHSEED`(train.py 已设)。
-- smoke 阶段建议跑两次同 seed forward,确认改动后仍逐字节确定(可选,handoff 做过)。
-
----
-
-## 6. 科学风险与论文定位
-
-### Q14. 已知风险清单
-
-| 风险 | 说明 | 缓解 |
-|---|---|---|
-| SwinUNETR 关 mirror 无效或变差 | 全局注意力可能已隐式处理左右 | 双向假设(Q10),照实报 |
-| 2D 逐 slice,关 LR flip 机制不同于 3D | 2D tail 可能不是 mirror 导致 | axis audit(Q2)+ 实验 itself |
-| conditional 实现破坏管线公平性 | fork get_moreDA 偏离 baseline | Phase 1 只 full-disable(Q4) |
-| LR axis audit 做错 | 关错轴 → 实验全废 | audit 脚本 + witness md + smoke 打印 |
-| 2D 入口缺失(Q3) | 无法对 2D 落地 | 先 SwinUNETR,2D 后补 |
-
-### Q15. 在 issue #1 主对比里的定位
-
-- 这是主对比的**改进型 ablation**,不是新主对比。叙事:"在最强网络上,通过关闭
-  LR-mirror 进一步修复 kidney tail / 左右混淆"。
-- 若成立,可作为 issue #1 结果的**补充改进**写进论文;若不成立,则"现有最强网络已
-  无需此 trick"也是有效结论。
-- **不**升级为新的 champion 声明,除非 Phase 2 全网络 ablation 也支持。
-
-### Q16. 与 handoff / MedNeXt 配置问题的边界
-
-- handoff(Huawei v1 Task520)只作先验,不混比(已在 scope 声明)。
-- issue #1 里 MedNeXt-S 的 `exp_r=4`(非上游 S 的 `exp_r=2`)是另一个独立问题,
-  MedNeXt-L 正在重训 —— **不在本实验范围**,本实验不碰 MedNeXt。
+### B-11. ✅ witness/record 链补全(对齐 handoff)
+**决策**:补 handoff 有、draft 缺的 3 个 witness/record,形成完整证据链。
+- **setup witness**:setup_DA_params 里(conditional 模式)记录改前 `original mirror_axes` / `do_mirror`,
+  并入 augmentation_witness(改前→改后配套);
+- **runtime_witness_report.md**:把 Q7 对齐表的"不变项"(loss / network / sampler / optimizer /
+  cudnn_deterministic 不变)落盘成 witness md;
+- **preflight.json**:训练前自检 record(env / config / axis / protected 参数齐全)。
+- 落点:归 B-1 的 `framework/transforms/conditional_mirror.py`(install_conditional_mirror_patch / trainer
+  initialize 里写),照搬 handoff 模式。
+- 完整 record 链:preflight → setup_witness → augmentation_witness → telemetry_jsonl → runtime_witness → env/done(对齐 handoff)。
+- 理由:对齐 handoff 已验证机制;可追溯/审计/复现性最强;每个成本低(json/md + 几行,照搬 handoff)。
 
 ---
 
-## 7. 落地阶段(正式 spec 应给出的 stage 表,草案)
+## 6. smoke + determinism
 
-| Stage | 内容 | 依赖 | 状态 |
+### B-8. ✅ 扩展 `framework/smoke_framework.py` 支持 2D
+**决策**:扩展现有 smoke_framework,去 line 50-51 的 `nnunet_2d` skip(c585966 前遗留)+ 加 `--network-dim 2d` 透传 + 2D 断言。
+- 2D 断言:2D Generic_UNet 构建(`conv_op=Conv2d`)、DS 路数(2D plans pool 层数,打印 `n_outputs`)、
+  `mirror_axes==(0,1)`、forward shape `[2,10,H,W]`。
+- 命令:`$NNUNETV1_PYTHON -m framework.smoke_framework --network nnunet_v1 --network-dim 2d --seed 20260520`。
+- 理由:最小改动(去 skip + 透传);3D/2D 同入口一致;复用现有 build/forward 断言框架。
+
+### Q13. determinism(已定,建议验证)
+conditional 引入新随机逻辑,建议同 seed 跑两次比 state_dict_equal(handoff 做过)。
+
+---
+
+## 7. 评估与统计
+
+### Q8. 指标(已定)
+kidney:L/R mean Dice、Dice P10、mean HD95、HD95 P90、FP/GT、FN/GT;swap rate/LP-gap/混淆 case 比例
+(`kidney_swap_eval.py`)。副作用:全 9 class Δ、条件类 absent-FP、盯 front。
+
+### Q9. 统计口径(已定)
+per-case 3-seed 平均 Wilcoxon;Holm 跨 2 网络×2 kidney×2 指标=8;HD95 纳入检验;P90/swap 等描述性。
+
+### 7.3 baseline 数据路径(事实,配对端)
+- SwinUNETR baseline:`v1_comparison/swinunetr__seed<seed>/fold_0/model_final_checkpoint.model` +
+  `v1_comparison_predictions/swinunetr__seed<seed>/`;
+- 2D baseline(PACA 版,复用):`v1_comparison_2d_root/seed<seed>/runs/nnunet_2d__seed<seed>/` +
+  `v1_comparison_predictions/nnunet_2d__seed<seed>/`。
+
+### 7.4 评估命令链(事实,既有工具)
+`evaluation/build_cases_csv.py` → `swine_ct_autonomous_discovery/metrics/evaluate_swine_ct.py --cases-csv`
+→ `evaluation/kidney_swap_eval.py`。conditional 与 baseline 各跑一遍产出 per_case.csv 供配对。
+
+### B-4. ✅ 新建 `evaluation/run_paired_stats.py`
+**决策**:新建独立脚本做 baseline vs conditional 网络内配对统计。
+- 输入:baseline + conditional 的 per_case.csv(每网络);per-case kidney Dice/HD95 先 3-seed 平均 →
+  Wilcoxon signed-rank;Holm 跨 2 网络×2 kidney×2 指标=8。
+- 输出:`evaluation/results_locked/condlr_vs_baseline_paired_stats.csv`(p / Holm-adj / 效应量)。
+- 理由:网络间 vs 网络内配对逻辑差异大;不碰 issue #1 的 run_stats.py(还在用,MedNeXt-L 重训中);
+  底层 Wilcoxon/Holm 抽成共用 helper(与 run_stats.py 共享,避免重复)。
+
+---
+
+## 8. 工程与调度
+
+### Q11. 训练规模(已定)
+conditional:SwinUNETR ×3 + nnunet_2d ×3 = 6 job(baseline 全复用不重训);节点 agent<170、非 174;
+单卡并发;early-runtime 检查。
+
+### B-3. ✅ 产物命名后缀 `__condlr`
+**决策**:conditional 产物统一用 `__condlr` 后缀。
+- ckpt `data/nnunetv1/v1_comparison/{swinunetr,nnunet_2d}__condlr_seed<seed>/fold_0/model_final_checkpoint.model`;
+- pred `data/nnunetv1/v1_comparison_predictions/{swinunetr,nnunet_2d}__condlr_seed<seed>/*.nii.gz`;
+- eval `evaluation/results_locked/{swinunetr,nnunet_2d}_condlr/`;
+- 理由:短且自解释(conditional LR);和 full-disable 的 `__nolr` 对称不混;和 baseline `<net>__seed<s>` 协调。
+
+### Q13. determinism / 复现(见 §6)
+
+### B-9. ✅ 扩展 `generate_train_jobs.py` 加 `--variant condlr`
+**决策**:扩展现有 generator,加 `--variant {baseline,condlr}` 开关(默认 baseline,不破坏现有)。
+- 3D conditional:`_3d_script` 模板 + `--lr-mirror-mode conditional` + `__condlr` 命名;
+- 2D conditional:**新模板** `framework/train.py --network nnunet_v1 --network-dim 2d --lr-mirror-mode conditional` + `__condlr`
+  (不走旧 `train_paca_deterministic.py`,因要触发 `--lr-mirror-mode`);
+- baseline 2D 保持旧 `train_paca_deterministic.py`(复用不重训,历史产物;trainer 等价已核实 Q3);
+- predict job:复用 `generate_predict_jobs.py`,只换 ckpt 路径指向 `__condlr`。
+- 理由:复用模板/DSUB header/env;一个 generator 统管;不重复。
+
+---
+
+## 9. 科学风险与定位(已定)
+
+- Q14 风险:conditional 实现错误(靠 telemetry 管控)/ axis audit 错 / 2D smoke 未通 / SwinUNETR 无效 / 2D 机制不同;
+  (2D baseline trainer 不一致风险已关闭)。
+- Q15:改进型 ablation,scope 严格 2 网络,不泛化,不升级 champion。
+- Q16:handoff 只作先验;MedNeXt 不碰。
+
+---
+
+## 10. Stage checklist(B 类待决策项已标注)
+
+| Stage | 任务 | 依赖 | 状态 |
 |---|---|---|---|
-| 0 | Q1+Q2 audit:打印 baseline mirror_axes + 确认 LR axis(3D,可选 2D) | — | 待做 |
-| 1 | Q3:定位 / 决策 2D 训练入口 | Q3 决策 | 待做 |
-| 2 | Q6:base_trainer 加 `lr_mirror_mode` + audit 脚本 + smoke(打印 mirror_axes 改前/改后) | Stage 0 | 待做 |
-| 3 | validator 审查(改前/改后 mirror_axes、axis 正确、forward 正常、不污染 baseline) | Stage 2 | 待做 |
-| 4 | 训练:SwinUNETr__nolr × 3 seed(+ 2D 若 Q3 解决) | Stage 3 PASS | 待做 |
-| 5 | 预测:test 39,sliding window 0.5,与 baseline 同口径 | Stage 4 | 待做 |
-| 6 | 评估 + 统计(locked evaluator + kidney_swap + Wilcoxon 配对) | Stage 5 | 待做 |
-| 7 | (可选)Phase 2 扩到其余 3 网络 | Phase 1 成立 | 待定 |
+| 0 | axis audit(B-5 脚本位置待定);打印 baseline mirror_axes;2D smoke(B-8 入口待定) | c585966 | 待做 |
+| 1 | ✅ 2D 纳入 framework(c585966) | — | 完成 |
+| 2 | conditional 实现(B-1 落点/B-2 CLI/B-6 方法/B-7 telemetry 均待定)+ telemetry smoke + determinism | Stage 0 | 待做 |
+| 3 | validator 审查(telemetry=0、axis 正确、forward 正常、baseline 不受影响) | Stage 2 | 待做 |
+| 4 | 训练 conditional(命名 B-3 待定)×6 | Stage 3 PASS | 待做 |
+| 5 | 预测 test 39(`framework/predict.py`) | Stage 4 | 待做 |
+| 6 | eval + kidney_swap + 统计(B-4 脚本方式待定) | Stage 5 | 待做 |
 
 ---
 
-## 8. 待决策清单(请先拍板,再写正式 spec)
+## 11. 设计决策溯源(6 项,已定)
 
-1. **Q3**:2D 入口怎么办?—— 先只 SwinUNETR(c),还是先排查 wrapper(a),还是
-   把 2D 纳入 framework(b)?
-2. **Q4**:第一阶段只 full-disable?—— 同意?
-3. **Q5**:Phase 1 只 2 网络、成立后再扩?—— 同意?
-4. **Q9**:统计口径 = per-case 3-seed 平均后 Wilcoxon + Holm?—— 同意?
-5. **Q2 audit 范围**:3D 必做;2D 的 axis audit 现在做,还是等 Q3 定了再做?
+Q3 2D 纳入 framework / Q4 只 conditional / Q5 只 2 网络 / Q9 统计口径(Holm 8,HD95 检验)/
+2D baseline 不重训 / Q2 3D+2D audit。
 
-拍完这 5 条,就可以把本 draft 收敛成正式 `v1-kidney-lr-mirror-ablation-spec.md`。
+## 12. B 类决策清单(11 项,均已拍板)
+
+| # | 问题 | 我的建议 |
+|---|---|---|
+| ~~B-1~~ | conditional 代码放哪 | ✅ 新建 `framework/transforms/conditional_mirror.py` |
+| ~~B-2~~ | train.py CLI | ✅ `--lr-mirror-mode {full,conditional}`(default full) |
+| ~~B-3~~ | 产物命名后缀 | ✅ `__condlr` |
+| ~~B-4~~ | 统计脚本 | ✅ 新建 `evaluation/run_paired_stats.py` |
+| ~~B-5~~ | audit 脚本放哪 | ✅ 新建 `tools/audit_lr_axis.py` |
+| ~~B-6~~ | 实现方法 | ✅ 模块符号 patch `da_more.MirrorTransform = factory`(对齐 handoff,照搬 install_conditional_mirror_patch) |
+| ~~B-7~~ | telemetry 设计 | ✅ 对齐 handoff:transform 实例属性 + JSONL 流式 + augmentation_witness.json |
+| ~~B-8~~ | 2D smoke 入口 | ✅ 扩展 `framework/smoke_framework.py`(去 skip + 加 `--network-dim 2d`) |
+| ~~B-9~~ | job 生成 | ✅ 扩展 `generate_train_jobs.py` 加 `--variant condlr` |
+| ~~B-10~~ | 参数传递 | ✅ 固定参数 trainer 常量 + axis CLI `--conditional-mirror-axis` |
+| ~~B-11~~ | witness/record 链 | ✅ 补 setup witness + runtime_witness + preflight(对齐 handoff) |
+
+> 逐个拍板,拍一个写回一个。全部定完后即可收敛成正式 spec 并执行。
+
+---
+
+## 13. 审查 + 批次提交:待决策问题(subagent 审查 + 用户追加)
+
+> 来源:独立 subagent 审查 [`v1-kidney-lr-mirror-ablation-spec-REVIEW.md`](v1-kidney-lr-mirror-ablation-spec-REVIEW.md) + 用户追加"批次提交作业"。这些是 spec/draft 之前没覆盖的,**待用户逐个拍板**。
+
+### 13.1 🔴 MUST(✅ 均已拍板)
+
+| # | 问题 | 决策 |
+|---|---|---|
+| ~~M1~~ | install_conditional_mirror_patch 时序 | ✅ **B:放 `MultiNetworkTrainer.initialize()` 内** `setup_DA_params()`(base_trainer.py:197)后、`get_moreDA_augmentation()`(:230)前;晚于 train.py:77 determinism patch。注:偏离 handoff 脚本级位置(handoff 在 run_training L495),但满足同样时序约束(get_moreDA 前 + determinism 后)。 |
+| ~~M2~~ | §5.2 技术推理错(我写错) | ✅ 按审查改:DS 下采样由 moreDA pipeline `DownsampleSegForDSTransform`(`:145`)做,MirrorTransform(`:111`)跑时 seg 仍 full-res、key 仍 `seg`(结论对、机制改对)。 |
+| ~~M3~~ | run_paired_stats 输入 schema/配对 | ✅ join key `(case_id,class_label)`、两臂标记 `nnunet_2d_condlr`/`swinunetr_condlr`、class∈{4,5}、HD95 NaN **drop pair(继续用 case 其它 class)**、效应量 **r=\|z\|/√N + mean Δ 都报**。 |
+| ~~M4~~ | 2D condlr predict 路径 | ✅ `generate_predict_jobs.py` 加 `--variant condlr`;2D condlr predict 新模板,CKPT 指 `v1_comparison/nnunet_2d__condlr_seed<seed>/`,走 `framework.predict --network-dim 2d`,eval 标签 `nnunet_2d_condlr`。 |
+
+### 13.2 🟡 RECOMMEND(打磨)
+
+| # | 问题 | 审查建议 | 待拍板 |
+|---|---|---|---|
+| ~~R1~~ | telemetry 字段名对 2D 误导 | ✅ **改名 `protected_lr_mirror_count` / `nonprotected_lr_mirror_count`**(逻辑照搬 handoff,字段名泛化;spec §5.5/B-7 断言名同步改;2D 不误导) |
+| ~~R2~~ | audit axis 注入 generator | ✅ audit 产 manifest,generator `--variant condlr` + `--lr-axis-manifest <path>` 读 manifest bake 进 `--conditional-mirror-axis`(与 train.py `--lr-axis-audit-manifest` 同源,单一真相) |
+| ~~R3~~ | build_cases_csv 不认 `__condlr` | ✅ 加 `--variant condlr`,pred_dir 指向 `__condlr` 目录,`method` 用 M3 标签(`nnunet_2d_condlr`/`swinunetr_condlr`) |
+| ~~R4~~ | 2D smoke 改动量低估 | ✅ §6.2 改述:新增 `--network-dim` 分支(dim=2d 走单网络路径 `get_default_configuration("2d")`+2D patch+`[2,1,H,W]` 输入,**不复用 all-networks 循环**;删 L50-51 死代码 skip;2D 断言不变 |
+| ~~R5~~ | 2D axis 取值约束(假 PASS 风险) | ✅ `confirmed_lr_axis_2d∈{0,1}`;**audit + train.py 双重校验** reject axis=2(for 2D);防 telemetry 假 PASS(axis 错时保护永不触发但计数==0) |
+| ~~R6~~ | 共用 helper 重构 | ✅ 新建 `evaluation/stats_helpers.py`,把 `holm_bonferroni`(+wilcoxon wrapper)移过去,`run_stats.py` + `run_paired_stats.py` 都 import;refactor run_stats 只移动不改逻辑(refactor 前后 smoke 确认输出一致) |
+
+### 13.3 🟢 OPTIONAL
+
+| # | 问题 | 审查建议 | 待选 |
+|---|---|---|---|
+| ~~O1~~ | predict 无需 conditional 接线 | ✅ 补声明(§5/Stage 5):predict 链路透明(`do_mirroring=False`),直接用 `__condlr` ckpt |
+| ~~O2~~ | 等价经验证 | ✅ **不做**(等价已源码核实:clip 原生 254/264 + He-reinit guard 仅 Dice=0 触发;抽查要额外重训 1 seed 且只验证 1 seed;baseline 复用不依赖经验证) |
+
+### 13.4 批次提交作业(用户追加)
+
+6 个 conditional job(SwinUNETR×3 + nnunet_2d×3)的批次提交策略:
+
+| 决策点 | 决策 |
+|---|---|
+| ~~提交方式~~ | ✅ **(b) 简单 loop dsub**(不碰 orchestrator,避免影响 issue #1 复现);`generate_train_jobs --variant condlr` 生成 6 脚本后 loop dsub |
+| ~~并发上限~~ | ✅ 不设硬上限,一次提 6 个,调度器按空闲 GPU 分配(不够的 pending) |
+| ~~分批顺序~~ | ✅ 混提(6 job 无依赖,一次性);3 seed 并发 |
+| ~~early-runtime 检查~~ | ✅ 逐个(每 job 提交后 1-2min `djob <id>` 查 RUNNING) |
+| ~~失败重提~~ | ✅ 单独(读 .err 修后单独 dsub,不动其它) |
+| ~~Stage 依赖~~ | ✅ Stage 3 validator PASS 才提 Stage 4 |
+
+---
+
+## 14. 统一 run_eval.py 后的未收口连锁(待逐个决策)
+
+> 背景:§C1 讨论后,实际选了"**统一 run_eval.py**"(把 evaluate_swine_ct.py 的全指标移植进 run_eval.py + HD95 verbatim + `seed` 列,代码已改 + smoke 通过:30 列、352 行、Dice 逐位对齐 issue#1)。这把评估架构从"两套"变成"单一",但 spec/draft 还停留在两套叙事,以下连锁待收口。**逐个拍完,再同步正式 spec。**
+
+### C-1. §C1 决策(统一)写进 draft/spec
+- 背景:draft §13 没 §C1;spec §7 还"两套(run_eval + evaluate_swine_ct)"叙事。
+- 待:draft 补 §C1 决策记录;spec §7.2/§7.4 改成"单一 run_eval.py"。([无选项,纯同步])
+
+### C-2. M3 schema 更新(8 → 30 列)
+- 背景:run_eval.py 现产 **30 列**(network/seed/case_id/source + confusion 全指标)。M3(draft §13.1 + spec §7.2)还写 8 列。
+- 待:M3 schema 更新成 30 列;run_paired_stats 读 30 列。([无选项,纯同步])
+
+### C-3. ✅ make_figures 改读 run_eval.py(单一数据源)
+**决策**:(a) make_figures 改读 `results/per_case.csv`(run_eval 30 列),消除 `results_locked/` 双轨。
+- 理由:延续统一目标;30 列含全指标 + 大写列名兼容 34 列,改动小(路径 + glob);消除双数据源。
+
+### C-4. ✅ build_cases_csv / evaluate_swine_ct 保留备用
+**决策**:(a) 保留(不默认调,作 canonical 对照 / 交叉验证)。
+- 理由:canonical locked evaluator 是项目资产,run_eval 是其 verbatim port;保留作对照基准(smoke 已用 issue#1 Dice 验证);保留不害(默认走 run_eval,evaluate_swine_ct 不默认调)。
+
+### C-5. ✅ issue #1 锁旧 8 列历史不动
+**决策**:(b) issue #1 的 run_stats / 8 列 per_case.csv 锁历史;ablation 用新 run_eval 30 列(run_paired_stats 独立读)。
+- 理由:issue #1 已定稿 + MedNeXt-L 重训中,重构 run_stats 有风险;run_paired_stats 是新脚本独立 30 列,不冲突;数值口径一致(算法同),schema 分裂可接受。
+- 注:MedNeXt-L 重训后 issue #1 若重评估 30 列,是 issue#1 后续(非本 ablation)。
+
+### C-6. ✅ baseline 评估重跑(30 列)
+**决策**:(a) 用新 run_eval.py 重新评估 issue#1 的 baseline predictions(产 30 列),与 conditional schema 一致。
+- 理由:schema 一致是 pair stats 配对前提(旧 8 列断裂);重评估 ≠ 重训(Q3 模型不重训,只重评估);baseline 获全指标(报表统一,配合 C-3);成本低(6 predictions × run_eval,分钟级)。
+- 注:旧 8 列 per_case.csv 保留(C-5 锁历史);新 30 列 baseline 评估是 ablation 专用。
+
+> 逐个拍,拍完同步正式 spec(§7.2/§7.3/§7.4 + make_figures/CLAUDE.md)。

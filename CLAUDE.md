@@ -200,13 +200,26 @@ Host hzau_gpu
 |---|---|---|
 | 训练 | `framework/train.py` | `--network <net> --seed <seed> --fold 0`;2D 加 `--network-dim 2d`(统一走 `MultiNetworkTrainer`) |
 | 预测 | `framework/predict.py` | `--network <net> --checkpoint <ckpt> --input-folder imagesTs --output-folder <pred>`;2D 加 `--network-dim 2d` |
-| 评估 | `swine_ct_autonomous_discovery/metrics/evaluate_swine_ct.py` | 项目 locked evaluator,34 列指标一次算齐 |
-| 评估适配 | `evaluation/build_cases_csv.py` | 把 predictions 路径 + GT + source 转成 locked evaluator 的 `--cases-csv` 格式 |
+| 评估 | `evaluation/run_eval.py` | article repo **统一评估器**(`evaluate_swine_ct.py` 的 verbatim port:同 HD95 算法 + 同 confusion 指标 Dice/IoU/Precision/Recall/Specificity/FPR/FP_GT_ratio/TP-FN-TN_percent/absent_FP + 多一个 `seed` 列);不再用 evaluate_swine_ct.py |
+| 评估适配 | `evaluation/build_cases_csv.py` | 仅 `evaluate_swine_ct.py` 链需要;`run_eval.py` 直接读 predictions,不用 cases-csv |
 | 统计聚合 | `evaluation/run_stats.py` | 跨 seed 聚合 + Wilcoxon + Holm-Bonferroni |
 | 图表 | `evaluation/make_figures.py` | 10 张图(bar/heatmap/box/scatter/significance),读 `evaluation/results_locked/` |
 
 **关键规则:**
-- 评估必须用 locked evaluator(`evaluate_swine_ct.py`),不要自己写 HD95/Dice。
+- 评估用 `evaluation/run_eval.py`(article repo 统一评估器,`evaluate_swine_ct.py` 的 verbatim port:同 HD95 + 同 confusion 指标 + `seed` 列);不要自己写指标。
 - 小目标(肾脏)用 median + P90,不用 mean(mean 被尾部拉飞)。
 - 图表源数据读 `evaluation/results_locked/`(locked evaluator 输出)。
 - 结果推 GitHub 后用 raw URL 嵌入 issue(repo 已 public)。
+
+## 决策原则:实验 / spec 的所有决策必须用户逐个拍板
+
+- 任何实验设计、spec、实施细节的**决策点** —— 无论设计层(做哪个方案、几个网络、
+  什么统计口径)还是实施层(代码放哪个文件、命名后缀、CLI 参数、脚本入口、fork 还是
+  monkey-patch)—— **一律由用户决策,我不得擅自替用户定**。
+- 我的职责:把每个决策点**列成问题**(选项 + 背景 + 我的建议),**一次问一个**,等
+  用户拍板后再写回 draft / spec。
+- **不允许**在重写 / 整理 draft / 写正式 spec 时,把未经用户拍板的实施细节当成既定
+  事实写进去(哪怕看起来"显然"的文件落点、命名、CLI 参数、统计脚本怎么改)。
+- draft 里若已混入我擅自做的决策,必须**回退成问题状态**,重新逐个征求意见。
+- "技术约束"(只有一种正确做法的机制,如 batchgenerators 接口、DS 下采样顺序)不
+  属于决策,标注清楚即可,但仍要让用户知晓。
