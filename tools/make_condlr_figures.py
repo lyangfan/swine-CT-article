@@ -60,14 +60,13 @@ def plot_kidney_bar(data):
             colors = ["#4C72B0", "#DD8452", "#4C72B0", "#DD8452"]
             bars = ax.bar(range(4), vals, color=colors, edgecolor="black", linewidth=0.5)
 
-            if metric == "HD95":
-                # Add error bars for HD95 (std across cases)
-                errs = []
-                for net, b_df, c_df in [("SwinUNETR", swin_b, swin_c), ("2D nnUNet", d2_b, d2_c)]:
-                    b = b_df[b_df["class_id"] == class_id][metric]
-                    c = c_df[c_df["class_id"] == class_id][metric]
-                    errs.extend([b.std() / np.sqrt(len(b)), c.std() / np.sqrt(len(c))])
-                ax.errorbar(range(4), vals, yerr=errs, fmt="none", ecolor="black", capsize=3)
+            # Error bars (SEM across cases)
+            errs = []
+            for net, b_df, c_df in [("SwinUNETR", swin_b, swin_c), ("2D nnUNet", d2_b, d2_c)]:
+                b = b_df[b_df["class_id"] == class_id][metric]
+                c = c_df[c_df["class_id"] == class_id][metric]
+                errs.extend([b.std() / np.sqrt(len(b)), c.std() / np.sqrt(len(c))])
+            ax.errorbar(range(4), vals, yerr=errs, fmt="none", ecolor="black", capsize=3)
 
             ax.set_xticks(range(4))
             ax.set_xticklabels(labels, fontsize=8)
@@ -157,8 +156,13 @@ def plot_scatter_hd95(data):
 
 
 def plot_swap_rate():
-    """Bar chart of swap rate comparison."""
+    """Bar chart of swap rate comparison (per-seed means with SEM)."""
     fig, ax = plt.subplots(figsize=(8, 4))
+
+    labels_list = []
+    means = []
+    sems = []
+    colors_list = []
 
     for csv_name, net_label in [("swinunetr_kidney_swap.csv", "SwinUNETR"),
                                  ("nnunet_2d_kidney_swap.csv", "nnU-Net 2D")]:
@@ -166,17 +170,27 @@ def plot_swap_rate():
         if not path.exists():
             continue
         df = pd.read_csv(path)
-        summary = df.groupby("network").agg(
-            mean_swap=("swap_rate", "mean"),
-            cases_with_swap=("has_swap", "sum"),
-            total=("has_swap", "count"),
+        # Compute per-seed swap rate
+        per_seed = df.groupby(["network", "seed"]).agg(
+            swap_rate=("swap_rate", "mean"),
         ).reset_index()
 
-        for _, row in summary.iterrows():
-            arm = "condlr" if "condlr" in row["network"] else "baseline"
-            color = "#DD8452" if arm == "condlr" else "#4C72B0"
-            label = f"{net_label} {arm}"
-            ax.bar(label, row["mean_swap"] * 100, color=color, edgecolor="black", linewidth=0.5)
+        for arm, arm_label in [("baseline", "baseline"), ("condlr", "condlr")]:
+            net_name = [n for n in per_seed["network"].unique() if ("condlr" in n) == (arm == "condlr")]
+            if not net_name:
+                continue
+            sub = per_seed[per_seed["network"] == net_name[0]]
+            seed_means = sub["swap_rate"].values * 100
+            labels_list.append(f"{net_label}\n{arm}")
+            means.append(np.mean(seed_means))
+            sems.append(np.std(seed_means) / np.sqrt(len(seed_means)))
+            colors_list.append("#DD8452" if arm == "condlr" else "#4C72B0")
+
+    x = range(len(labels_list))
+    ax.bar(x, means, color=colors_list, edgecolor="black", linewidth=0.5)
+    ax.errorbar(x, means, yerr=sems, fmt="none", ecolor="black", capsize=3)
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels_list, fontsize=8)
 
     ax.set_ylabel("Mean Swap Rate (%)")
     ax.set_title("Kidney Left/Right Swap Rate: Baseline vs Conditional")
