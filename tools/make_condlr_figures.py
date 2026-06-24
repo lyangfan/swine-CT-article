@@ -202,10 +202,99 @@ def plot_swap_rate():
     print(f"Saved: {path}")
 
 
+def plot_kidney_violin(data):
+    """Violin plot: per-case kidney Dice and HD95 distribution."""
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    for col, metric in enumerate(["Dice", "HD95"]):
+        for row, (net, b_label, c_label, net_name) in enumerate([
+            ("swinunetr", "swinunetr_baseline", "swinunetr_condlr", "SwinUNETR"),
+            ("nnunet_2d", "nnunet_2d_baseline", "nnunet_2d_condlr", "nnU-Net 2D"),
+        ]):
+            ax = axes[row][col]
+            b_df = data[b_label]
+            c_df = data[c_label]
+
+            positions = []
+            violin_data = []
+            tick_labels = []
+            colors = []
+
+            for i, (class_id, kidney_name) in enumerate([(4, "left"), (5, "right")]):
+                b_vals = b_df[b_df["class_id"] == class_id][metric].dropna().values
+                c_vals = c_df[c_df["class_id"] == class_id][metric].dropna().values
+                positions.extend([i * 3, i * 3 + 1])
+                violin_data.extend([b_vals, c_vals])
+                tick_labels.extend([f"{kidney_name}\nbaseline", f"{kidney_name}\ncondlr"])
+                colors.extend(["#4C72B0", "#DD8452"])
+
+            parts = ax.violinplot(violin_data, positions=positions, showmeans=True, showmedians=True)
+            for i, pc in enumerate(parts["bodies"]):
+                pc.set_facecolor(colors[i])
+                pc.set_alpha(0.6)
+
+            ax.set_xticks(positions)
+            ax.set_xticklabels(tick_labels, fontsize=8)
+            ax.set_ylabel(metric)
+            ax.set_title(net_name, fontsize=11)
+
+            if metric == "HD95":
+                ax.set_ylim(bottom=0)
+
+    fig.suptitle("Kidney Dice and HD95 Distribution: Baseline vs Conditional", fontsize=13)
+    plt.tight_layout()
+    path = OUTPUT_DIR / "kidney_violin.png"
+    fig.savefig(path, dpi=150)
+    plt.close()
+    print(f"Saved: {path}")
+
+
+def plot_diff_violin():
+    """Violin plot of paired differences (condlr - baseline)."""
+    data = load_data()
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+
+    for col, metric in enumerate(["Dice", "HD95"]):
+        ax = axes[col]
+        diffs = []
+        labels = []
+
+        for net_label, net_name in [("swinunetr", "SwinUNETR"), ("nnunet_2d", "nnU-Net 2D")]:
+            b_df = data[f"{net_label}_baseline"]
+            c_df = data[f"{net_label}_condlr"]
+            for class_id, kidney_name in [(4, "left"), (5, "right")]:
+                merged = b_df[b_df["class_id"] == class_id].merge(
+                    c_df[c_df["class_id"] == class_id], on="case_id", suffixes=("_b", "_c"))
+                diff = merged[f"{metric}_c"] - merged[f"{metric}_b"]
+                diffs.append(diff.dropna().values)
+                labels.append(f"{net_name}\n{kidney_name}")
+
+        positions = range(len(diffs))
+        parts = ax.violinplot(diffs, positions=positions, showmeans=True, showmedians=True)
+        for i, pc in enumerate(parts["bodies"]):
+            pc.set_facecolor("#4C72B0" if i < 2 else "#DD8452")
+            pc.set_alpha(0.6)
+
+        ax.axhline(0, color="red", linestyle="--", linewidth=1, alpha=0.5)
+        ax.set_xticks(list(positions))
+        ax.set_xticklabels(labels, fontsize=8)
+        ax.set_ylabel(f"Δ {metric} (condlr - baseline)")
+        ax.set_title(f"Paired Δ {metric}", fontsize=11)
+
+    fig.suptitle("Kidney Metric Changes Distribution", fontsize=13)
+    plt.tight_layout()
+    path = OUTPUT_DIR / "kidney_diff_violin.png"
+    fig.savefig(path, dpi=150)
+    plt.close()
+    print(f"Saved: {path}")
+
+
 if __name__ == "__main__":
     data = load_data()
     plot_kidney_bar(data)
     plot_kidney_box(data)
+    plot_kidney_violin(data)
+    plot_diff_violin()
     plot_scatter_hd95(data)
     plot_swap_rate()
     print("Done.")
