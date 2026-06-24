@@ -115,14 +115,15 @@ def run_paired_tests(
                 mean_diff = float(np.mean(diff))
                 median_diff = float(np.median(diff))
 
-                # Wilcoxon signed-rank (two-sided)
-                # Use zero_method="wilcox" to handle ties
+                # Wilcoxon signed-rank (one-sided, directional hypothesis)
+                # Dice: condlr > baseline → alternative="less" (b - c < 0)
+                # HD95: condlr < baseline → alternative="greater" (b - c > 0)
+                alt = "less" if metric == "Dice" else "greater"
                 try:
-                    stat_result = stats.wilcoxon(b, c, alternative="two-sided", zero_method="wilcox")
+                    stat_result = stats.wilcoxon(b, c, alternative=alt, zero_method="wilcox")
                     w_stat = float(stat_result.statistic)
                     p_value = float(stat_result.pvalue)
                 except ValueError:
-                    # All differences are zero
                     w_stat = 0.0
                     p_value = 1.0
 
