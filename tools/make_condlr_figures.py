@@ -156,12 +156,11 @@ def plot_scatter_hd95(data):
 
 
 def plot_swap_rate():
-    """Bar chart of swap rate comparison (per-seed means with SEM)."""
+    """Bar chart of swap rate comparison (aggregate across all seeds)."""
     fig, ax = plt.subplots(figsize=(8, 4))
 
     labels_list = []
-    means = []
-    sems = []
+    rates = []
     colors_list = []
 
     for csv_name, net_label in [("swinunetr_kidney_swap.csv", "SwinUNETR"),
@@ -170,25 +169,18 @@ def plot_swap_rate():
         if not path.exists():
             continue
         df = pd.read_csv(path)
-        # Compute per-seed swap rate
-        per_seed = df.groupby(["network", "seed"]).agg(
-            swap_rate=("swap_rate", "mean"),
-        ).reset_index()
 
         for arm, arm_label in [("baseline", "baseline"), ("condlr", "condlr")]:
-            net_name = [n for n in per_seed["network"].unique() if ("condlr" in n) == (arm == "condlr")]
+            net_name = [n for n in df["network"].unique() if ("condlr" in n) == (arm == "condlr")]
             if not net_name:
                 continue
-            sub = per_seed[per_seed["network"] == net_name[0]]
-            seed_means = sub["swap_rate"].values * 100
+            sub = df[df["network"] == net_name[0]]
             labels_list.append(f"{net_label}\n{arm}")
-            means.append(np.mean(seed_means))
-            sems.append(np.std(seed_means) / np.sqrt(len(seed_means)))
+            rates.append(sub["swap_rate"].mean() * 100)
             colors_list.append("#DD8452" if arm == "condlr" else "#4C72B0")
 
     x = range(len(labels_list))
-    ax.bar(x, means, color=colors_list, edgecolor="black", linewidth=0.5)
-    ax.errorbar(x, means, yerr=sems, fmt="none", ecolor="black", capsize=3)
+    ax.bar(x, rates, color=colors_list, edgecolor="black", linewidth=0.5)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels_list, fontsize=8)
 
